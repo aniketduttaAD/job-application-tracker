@@ -3,15 +3,25 @@ import { NextRequest } from "next/server";
 const API_KEY = process.env.API_KEY ?? "";
 
 function isSameOrigin(request: NextRequest): boolean {
-  const origin = request.headers.get("origin");
   const host = request.headers.get("host");
-  if (!origin || !host) return false;
-  try {
-    const originHost = new URL(origin).host;
-    return originHost === host;
-  } catch {
-    return false;
+  if (!host) return false;
+  const origin = request.headers.get("origin");
+  if (origin) {
+    try {
+      return new URL(origin).host === host;
+    } catch {
+      return false;
+    }
   }
+  const referer = request.headers.get("referer");
+  if (referer) {
+    try {
+      return new URL(referer).host === host;
+    } catch {
+      return false;
+    }
+  }
+  return false;
 }
 
 function hasValidApiKey(request: NextRequest): boolean {
