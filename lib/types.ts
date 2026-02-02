@@ -1,6 +1,5 @@
 export type JobStatus = "applied" | "screening" | "interview" | "offer" | "rejected" | "withdrawn";
 
-/** Normalized tech stack by category for analytics and filtering. */
 export interface TechStackNormalized {
   languages?: string[];
   frameworks?: string[];
@@ -18,9 +17,7 @@ export interface TechStackNormalized {
   methodologies?: string[];
   designPrinciples?: string[];
   operatingSystems?: string[];
-  /** Data-fetching / client data libs (e.g. TanStack Query). */
   data?: string[];
-  /** Collaboration tools from JD (e.g. Slack, Notion, Jira). */
   collaborationTools?: string[];
 }
 

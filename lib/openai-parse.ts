@@ -1,10 +1,7 @@
 import OpenAI from "openai";
 import type { JobRecord, TechStackNormalized } from "./types";
 
-/** Cost-effective, accurate model for structured extraction (128K context, low cost). */
 const JD_PARSE_MODEL = "gpt-4o-mini";
-
-/** Max JD length to stay within context and control cost (~15k tokens). Full JD is sent up to this. */
 const MAX_JD_CHARS = 60_000;
 
 const openai = new OpenAI({
@@ -267,13 +264,11 @@ function normalizeParseResult(raw: ParseResult): ParseResult {
   };
 }
 
-/** Cap required string length for storage safety; never returns null. */
 function capRequiredString(s: string, maxLen: number): string {
   if (s.length <= maxLen) return s;
   return s.slice(0, maxLen).trim() || "";
 }
 
-/** Cap optional string length for storage safety; null unchanged. */
 function capOptionalString(s: string | null, maxLen: number): string | null {
   if (s == null || s.length <= maxLen) return s;
   return s.slice(0, maxLen).trim() || null;

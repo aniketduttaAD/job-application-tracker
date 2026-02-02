@@ -1,13 +1,11 @@
 @import "tailwindcss";
 
 @theme {
-  /* Beige palette */
   --color-beige-50: #fdfcf9;
   --color-beige-100: #f9f6f0;
   --color-beige-200: #f2ebe0;
   --color-beige-300: #e8dcc8;
   --color-beige-400: #d4c4a8;
-  /* Orange accent */
   --color-orange-brand: #e07c3c;
   --color-orange-light: #f0a066;
   --color-orange-dark: #c45d24;

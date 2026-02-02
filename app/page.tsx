@@ -61,7 +61,6 @@ export default function HomePage() {
     fetchJobs();
   }, [fetchJobs]);
 
-  // Fuzzy search API when user types in main search box (elastic-style)
   useEffect(() => {
     const q = search.trim();
     if (!q) {
@@ -271,7 +270,6 @@ export default function HomePage() {
     <div className="min-h-screen flex flex-col">
       <header className="sticky top-0 z-20 border-b border-beige-300 bg-beige-100/95 backdrop-blur supports-[backdrop-filter]:bg-beige-100/80">
         <div className="mx-auto max-w-6xl px-4 py-4 sm:px-6 sm:py-5">
-          {/* Mobile: stacked rows. Desktop: single row */}
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
             <h1 className="shrink-0 text-xl font-semibold text-stone-800 sm:text-2xl">
               Job Tracker
@@ -561,7 +559,6 @@ export default function HomePage() {
           aria-modal="true"
           aria-labelledby="detail-modal-title"
         >
-          {/* Backdrop with transition */}
           <div
             className="absolute inset-0 bg-stone-900/60 backdrop-blur-[2px] transition-opacity"
             aria-hidden
@@ -571,7 +568,6 @@ export default function HomePage() {
             className="relative flex max-h-[92vh] w-full flex-col rounded-t-2xl border border-beige-300 border-b-0 bg-beige-50 shadow-2xl sm:max-h-[88vh] sm:max-w-2xl sm:rounded-2xl sm:border-b"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Sticky header */}
             <div className="sticky top-0 z-10 flex shrink-0 items-center justify-between border-b border-beige-300 bg-beige-50/95 px-4 py-3 backdrop-blur sm:px-6 sm:py-4">
               <h2
                 id="detail-modal-title"
@@ -589,10 +585,8 @@ export default function HomePage() {
               </button>
             </div>
 
-            {/* Scrollable body with sections */}
             <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
               <div className="space-y-6">
-                {/* Overview */}
                 <section>
                   <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-stone-500">
                     Overview
@@ -606,7 +600,6 @@ export default function HomePage() {
                   </p>
                 </section>
 
-                {/* Details grid */}
                 <section>
                   <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-stone-500">
                     Details
@@ -705,7 +698,6 @@ export default function HomePage() {
                   </dl>
                 </section>
 
-                {/* Collaboration tools */}
                 {(detailJob.collaborationTools?.length ?? 0) > 0 && (
                   <section>
                     <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-stone-500">
@@ -724,7 +716,6 @@ export default function HomePage() {
                   </section>
                 )}
 
-                {/* Tech stack */}
                 {detailJob.techStack.length > 0 && (
                   <section>
                     <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-stone-500">
@@ -744,7 +735,6 @@ export default function HomePage() {
                   </section>
                 )}
 
-                {/* Notes */}
                 {detailJob.notes && (
                   <section>
                     <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-stone-500">
@@ -756,7 +746,6 @@ export default function HomePage() {
                   </section>
                 )}
 
-                {/* Raw JD */}
                 {detailJob.jdRaw && (
                   <section>
                     <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-stone-500">
@@ -770,7 +759,6 @@ export default function HomePage() {
               </div>
             </div>
 
-            {/* Sticky footer with close (mobile thumb reach) */}
             <div className="sticky bottom-0 flex shrink-0 justify-end border-t border-beige-300 bg-beige-50/95 px-4 py-3 backdrop-blur sm:px-6 sm:py-4">
               <button
                 type="button"

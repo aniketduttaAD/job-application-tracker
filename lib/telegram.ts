@@ -11,9 +11,6 @@ function getBotToken(): string {
 
 export type InlineKeyboardButton = { text: string; callback_data: string };
 
-/**
- * Sends a text message to a Telegram chat. Splits into multiple messages if over 4096 chars.
- */
 export async function sendTelegramMessage(
   chatId: number,
   text: string,
@@ -44,9 +41,6 @@ export async function sendTelegramMessage(
   }
 }
 
-/**
- * Sends a message with an inline keyboard. Buttons are clickable; callback_data max 64 bytes.
- */
 export async function sendTelegramMessageWithKeyboard(
   chatId: number,
   text: string,
@@ -74,7 +68,6 @@ export async function sendTelegramMessageWithKeyboard(
   }
 }
 
-/** Callback_data is max 64 bytes; "job:" + uuid(36) = 41 bytes. */
 const CALLBACK_PREFIX_JOB = "job:";
 
 export function buildJobListKeyboard(jobs: JobRecord[]): InlineKeyboardButton[][] {
@@ -153,7 +146,6 @@ function emptyStr(s: string | null | undefined): string {
   return s != null && String(s).trim() !== "" ? String(s).trim() : "—";
 }
 
-/** Short one-line summary for list/search (HTML-safe). */
 export function formatJobShort(job: JobRecord, index?: number): string {
   const pre = index != null ? `${index + 1}. ` : "";
   const title = escapeHtml(emptyStr(job.title));
@@ -163,7 +155,6 @@ export function formatJobShort(job: JobRecord, index?: number): string {
   return `${pre}<b>${title}</b> @ ${company} — ${status}\n<code>id: ${id}</code>`;
 }
 
-/** Full job card for Telegram (HTML). Tech stack only (no by-category); excludes raw JD, status, applied, applicants. */
 export function formatJobFull(job: JobRecord): string {
   const lines: string[] = [
     `<b>${escapeHtml(emptyStr(job.title))}</b>`,
@@ -197,7 +188,6 @@ export function formatJobFull(job: JobRecord): string {
   return lines.join("\n");
 }
 
-/** Formatted search/list results (HTML). */
 export function formatJobList(
   jobs: JobRecord[],
   options?: { title?: string; total?: number; showIndex?: boolean }
@@ -218,17 +208,15 @@ export function formatJobList(
   return lines.join("\n");
 }
 
-/** Parse command and args from message text (e.g. "/search react" -> { command: "search", args: ["react"] }). */
 export function parseCommand(text: string): { command: string; args: string[] } | null {
   const t = text?.trim();
   if (!t || !t.startsWith("/")) return null;
   const parts = t.slice(1).split(/\s+/);
-  const command = (parts[0] ?? "").toLowerCase().replace(/@\w+$/, ""); // strip @botname
+  const command = (parts[0] ?? "").toLowerCase().replace(/@\w+$/, "");
   const args = parts.slice(1).filter(Boolean);
   return { command, args };
 }
 
-/** Help text for /start and /help. */
 export function getHelpText(): string {
   return [
     "<b>Job Tracker Bot</b>",

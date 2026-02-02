@@ -32,23 +32,15 @@ function flattenTechStackNormalized(t: TechStackNormalized | null | undefined): 
 }
 
 export interface SearchOptions {
-  /** Max results to return (default 20, max 50). */
   limit?: number;
-  /** Skip first N results (default 0). */
   offset?: number;
-  /** Filter by status before searching. */
   status?: JobRecord["status"];
-  /** Fuse.js threshold 0–1; lower = stricter (default 0.4). */
   threshold?: number;
 }
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 50;
 
-/**
- * Prepares a flat search document from a JobRecord so Fuse can search
- * title, company, role, location, experience, tech stack, notes with weights.
- */
 function toSearchDoc(job: JobRecord) {
   const techFlat = Array.isArray(job.techStack) ? job.techStack.join(" ") : "";
   const techNorm = flattenTechStackNormalized(job.techStackNormalized);
@@ -79,10 +71,6 @@ export interface FuzzySearchResult {
   total: number;
 }
 
-/**
- * Elastic-style fuzzy search over jobs using Fuse.js.
- * Typo-tolerant, weighted by field importance, returns results ordered by relevance.
- */
 export function fuzzySearchJobs(
   jobs: JobRecord[],
   query: string,

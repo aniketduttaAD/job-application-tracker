@@ -14,9 +14,7 @@ const defaultData: JobsData = {
 function ensureDataDir(): void {
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
-  } catch {
-    // ignore
-  }
+  } catch {}
 }
 
 let db: ReturnType<typeof JSONFileSyncPreset<JobsData>> | null = null;

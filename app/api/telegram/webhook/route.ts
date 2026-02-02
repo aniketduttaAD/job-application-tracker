@@ -15,7 +15,7 @@ import {
 import type { JobRecord, JobStatus } from "@/lib/types";
 import { v4 as uuidv4 } from "uuid";
 
-const PENDING_ADD_TTL_MS = 5 * 60 * 1000; // 5 min
+const PENDING_ADD_TTL_MS = 5 * 60 * 1000;
 const VALID_STATUSES: JobStatus[] = [
   "applied",
   "screening",
@@ -25,7 +25,7 @@ const VALID_STATUSES: JobStatus[] = [
   "withdrawn",
 ];
 
-const PENDING_SEARCH_TTL_MS = 2 * 60 * 1000; // 2 min
+const PENDING_SEARCH_TTL_MS = 2 * 60 * 1000;
 
 const pendingAddByChat = new Map<number, number>();
 const pendingSearchByChat = new Map<number, number>();
@@ -83,11 +83,9 @@ async function handleMessage(chatId: number, text: string, request: NextRequest)
   const origin = getApiOrigin(request);
   const headers = getApiHeaders();
 
-  // If user was waiting to send search query after /search
   if (isPendingSearch(chatId)) {
     if (text.startsWith("/")) {
       clearPendingSearch(chatId);
-      // Fall through to command handling
     } else {
       clearPendingSearch(chatId);
       const q = text?.trim() ?? "";
@@ -116,7 +114,6 @@ async function handleMessage(chatId: number, text: string, request: NextRequest)
     }
   }
 
-  // If user was waiting to paste JD after /add
   if (isPendingAdd(chatId)) {
     clearPendingAdd(chatId);
     if (!text?.trim()) {
@@ -311,7 +308,6 @@ export async function POST(request: NextRequest) {
     };
   };
 
-  // Handle inline button click (tap on list/search result)
   if (update.callback_query?.id != null) {
     const cq = update.callback_query;
     const jobId = cq.data != null ? parseJobCallbackData(cq.data) : null;
