@@ -203,13 +203,22 @@ export default function HomePage() {
         headers: getApiHeaders(),
         body: JSON.stringify(record),
       });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        const job = await res.json();
-        setJobs((prev) => [job, ...prev]);
+        setJobs((prev) => [data, ...prev]);
         setParseModalOpen(false);
         setParsePaste("");
         setParseResult(null);
+      } else {
+        const msg = [data.error, data.detail].filter(Boolean).join(" — ");
+        setParseResult((prev) =>
+          prev ? { ...prev, error: msg || "Unable to save" } : { error: msg || "Unable to save" }
+        );
       }
+    } catch {
+      setParseResult((prev) =>
+        prev ? { ...prev, error: "Unable to save" } : { error: "Unable to save" }
+      );
     } finally {
       setSaveLoading(false);
     }

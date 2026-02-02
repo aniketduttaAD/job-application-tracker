@@ -70,62 +70,85 @@ export async function POST(request: NextRequest) {
   if (!isApiAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  let body: unknown;
   try {
-    const body = await request.json();
+    body = await request.json();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Invalid JSON";
+    return NextResponse.json(
+      { error: "Invalid payload", detail: msg },
+      { status: 400 }
+    );
+  }
+  if (body == null || typeof body !== "object" || Array.isArray(body)) {
+    return NextResponse.json(
+      { error: "Invalid payload", detail: "Body must be a JSON object" },
+      { status: 400 }
+    );
+  }
+  const b = body as Record<string, unknown>;
+  try {
     const now = new Date().toISOString();
     const trim = (v: unknown) => (v != null ? String(v).trim() : "");
     const trimOpt = (v: unknown, maxLen = MAX_STRING_LENGTH) => trimCap(v, maxLen);
     const job: JobRecord = {
       id: uuidv4(),
-      title: trimCap(body.title, MAX_STRING_LENGTH) ?? "",
-      company: trimCap(body.company, MAX_STRING_LENGTH) ?? "",
-      companyPublisher: trimOpt(body.companyPublisher) ?? null,
-      location: trimCap(body.location, MAX_STRING_LENGTH) ?? "",
+      title: trimCap(b.title, MAX_STRING_LENGTH) ?? "",
+      company: trimCap(b.company, MAX_STRING_LENGTH) ?? "",
+      companyPublisher: trimOpt(b.companyPublisher) ?? null,
+      location: trimCap(b.location, MAX_STRING_LENGTH) ?? "",
       salaryMin:
-        typeof body.salaryMin === "number" && Number.isFinite(body.salaryMin) && body.salaryMin >= 0
-          ? body.salaryMin
+        typeof b.salaryMin === "number" && Number.isFinite(b.salaryMin) && b.salaryMin >= 0
+          ? b.salaryMin
           : undefined,
       salaryMax:
-        typeof body.salaryMax === "number" && Number.isFinite(body.salaryMax) && body.salaryMax >= 0
-          ? body.salaryMax
+        typeof b.salaryMax === "number" && Number.isFinite(b.salaryMax) && b.salaryMax >= 0
+          ? b.salaryMax
           : undefined,
-      salaryCurrency: body.salaryCurrency === null ? null : trim(body.salaryCurrency) || undefined,
+      salaryCurrency: b.salaryCurrency === null ? null : trim(b.salaryCurrency) || undefined,
       salaryPeriod:
-        body.salaryPeriod === "hourly" ||
-        body.salaryPeriod === "monthly" ||
-        body.salaryPeriod === "yearly"
-          ? body.salaryPeriod
+        b.salaryPeriod === "hourly" ||
+        b.salaryPeriod === "monthly" ||
+        b.salaryPeriod === "yearly"
+          ? b.salaryPeriod
           : "yearly",
-      techStack: trimCapArray(body.techStack, MAX_ARRAY_ITEMS),
-      techStackNormalized: normalizeTechStackFromBody(body.techStackNormalized),
-      role: trimCap(body.role) || trimCap(body.title) || "",
-      experience: trimCap(body.experience) ?? "Not specified",
-      jobType: trimOpt(body.jobType) ?? null,
-      availability: trimOpt(body.availability) ?? null,
-      product: trimOpt(body.product) ?? null,
-      seniority: trimOpt(body.seniority) ?? null,
-      collaborationTools: trimCapArray(body.collaborationTools, MAX_ARRAY_ITEMS) || undefined,
-      status: VALID_STATUSES.includes(body.status as JobStatus)
-        ? (body.status as JobStatus)
+      techStack: trimCapArray(b.techStack, MAX_ARRAY_ITEMS),
+      techStackNormalized: normalizeTechStackFromBody(b.techStackNormalized),
+      role: trimCap(b.role) || trimCap(b.title) || "",
+      experience: trimCap(b.experience) ?? "Not specified",
+      jobType: trimOpt(b.jobType) ?? null,
+      availability: trimOpt(b.availability) ?? null,
+      product: trimOpt(b.product) ?? null,
+      seniority: trimOpt(b.seniority) ?? null,
+      collaborationTools: trimCapArray(b.collaborationTools, MAX_ARRAY_ITEMS) || undefined,
+      status: VALID_STATUSES.includes(b.status as JobStatus)
+        ? (b.status as JobStatus)
         : "applied",
-      appliedAt: body.appliedAt ?? now,
-      postedAt: trimOpt(body.postedAt) ?? null,
+      appliedAt:
+        typeof b.appliedAt === "string" && b.appliedAt.trim()
+          ? b.appliedAt.trim()
+          : now,
+      postedAt: trimOpt(b.postedAt) ?? null,
       applicantsCount:
-        typeof body.applicantsCount === "number" &&
-        Number.isInteger(body.applicantsCount) &&
-        body.applicantsCount >= 0
-          ? body.applicantsCount
+        typeof b.applicantsCount === "number" &&
+        Number.isInteger(b.applicantsCount) &&
+        b.applicantsCount >= 0
+          ? b.applicantsCount
           : undefined,
-      education: trimOpt(body.education) ?? null,
-      source: trimOpt(body.source) ?? undefined,
-      jdRaw: trimCap(body.jdRaw, MAX_LONG_TEXT_LENGTH) ?? undefined,
-      notes: trimCap(body.notes, MAX_LONG_TEXT_LENGTH) ?? undefined,
+      education: trimOpt(b.education) ?? null,
+      source: trimOpt(b.source) ?? undefined,
+      jdRaw: trimCap(b.jdRaw, MAX_LONG_TEXT_LENGTH) ?? undefined,
+      notes: trimCap(b.notes, MAX_LONG_TEXT_LENGTH) ?? undefined,
       createdAt: now,
       updatedAt: now,
     };
     await addJob(job);
     return NextResponse.json(job);
   } catch (e) {
-    return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
+    const detail = e instanceof Error ? e.message : String(e);
+    return NextResponse.json(
+      { error: "Invalid payload", detail },
+      { status: 400 }
+    );
   }
 }
