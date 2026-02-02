@@ -13,8 +13,8 @@
     "telegram:set-webhook": "node scripts/set-telegram-webhook.mjs"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.0.2",
     "fuse.js": "^7.1.0",
-    "lowdb": "^7.0.1",
     "lucide-react": "^0.563.0",
     "next": "16.1.6",
     "openai": "^6.17.0",

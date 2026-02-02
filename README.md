@@ -1,12 +1,12 @@
 # Personal Job Application Tracker
 
-A personal app to track job applications. Store jobs locally (JSON file), paste job descriptions and parse them with OpenAI into structured fields, then filter, search, and manage by status, role, location, tech stack, and salary.
+A personal app to track job applications. Store jobs in Postgres (Neon), paste job descriptions and parse them with OpenAI into structured fields, then filter, search, and manage by status, role, location, tech stack, and salary.
 
 ---
 
 ## Features
 
-- **Local storage** — Jobs in `data/jobs.json` (lowdb). No external database.
+- **Postgres storage** — Jobs in Neon Postgres. Set `DATABASE_URL` and run the schema once (see Setup).
 - **AI JD parsing** — Paste a job description; OpenAI (`gpt-4o-mini`) extracts title, company, location, salary, tech stack, role, experience. Up to 60k characters per JD.
 - **Search & filters** — Search box plus filters: title, location, role, experience, tech stack, status, salary min/max.
 - **Status workflow** — applied, screening, interview, offer, rejected, withdrawn.
@@ -34,17 +34,23 @@ A personal app to track job applications. Store jobs locally (JSON file), paste 
 
    | Variable                  | Required             | Description                                                                                                                                              |
    | ------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+   | `DATABASE_URL`            | Yes                  | Neon Postgres connection string (e.g. `postgresql://user:pass@host/db?sslmode=require`). Create a project at [Neon](https://neon.tech).                  |
    | `API_KEY`                 | Optional             | Protects API routes (POST/PATCH/DELETE). When set, requests must send this key or come from the same origin (your UI). Leave empty for same-origin only. |
    | `OPENAI_API_KEY`          | For parse            | OpenAI API key for JD parsing. Get one at [OpenAI API keys](https://platform.openai.com/api-keys).                                                       |
    | `TELEGRAM_BOT_TOKEN`      | For Telegram         | Bot token if you use the Telegram bot.                                                                                                                   |
    | `TELEGRAM_WEBHOOK_SECRET` | For Telegram         | Secret for webhook URL so only Telegram can call it.                                                                                                     |
    | `BASE_URL`                | For Telegram webhook | Your deployed app URL (e.g. `https://your-domain.com`) when running `npm run telegram:set-webhook`.                                                      |
 
-3. **Run**
+3. **Create the jobs table**  
+   In the [Neon SQL Editor](https://console.neon.tech) (or any Postgres client), run the SQL in `scripts/init-db.sql` to create the `jobs` table.
+
+4. **Run**
    ```bash
    npm run dev
    ```
    Open [http://localhost:3000](http://localhost:3000).
+
+   For Vercel: pull env with `vercel env pull .env.development.local` so `DATABASE_URL` is available locally.
 
 ---
 
@@ -71,4 +77,4 @@ The bot uses a **webhook**: Telegram sends updates to a URL. After you deploy, y
 
 ## Tech
 
-Next.js (App Router), React, TypeScript, lowdb, OpenAI, Tailwind CSS, Lucide React.
+Next.js (App Router), React, TypeScript, Neon Postgres (`@neondatabase/serverless`), OpenAI, Tailwind CSS, Lucide React.
