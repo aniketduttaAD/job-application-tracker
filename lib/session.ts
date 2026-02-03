@@ -89,8 +89,22 @@ export async function getSession(sessionId: string): Promise<UserSession | null>
     const rows = (await sql.query(
       "SELECT session_id, session_type, identifier, expires_at, created_at FROM user_sessions WHERE session_id = $1 AND expires_at > NOW()",
       [sessionId]
-    )) as UserSession[];
-    return rows.length > 0 ? rows[0] : null;
+    )) as Array<{
+      session_id: string;
+      session_type: string;
+      identifier: string;
+      expires_at: string;
+      created_at: string;
+    }>;
+    if (rows.length === 0) return null;
+    const row = rows[0];
+    return {
+      sessionId: row.session_id,
+      sessionType: row.session_type as SessionType,
+      identifier: row.identifier,
+      expiresAt: row.expires_at,
+      createdAt: row.created_at,
+    };
   } catch {
     return null;
   }
@@ -109,8 +123,22 @@ export async function getSessionByIdentifier(
     const rows = (await sql.query(
       "SELECT session_id, session_type, identifier, expires_at, created_at FROM user_sessions WHERE session_type = $1 AND identifier = $2 AND expires_at > NOW()",
       [sessionType, identifier]
-    )) as UserSession[];
-    return rows.length > 0 ? rows[0] : null;
+    )) as Array<{
+      session_id: string;
+      session_type: string;
+      identifier: string;
+      expires_at: string;
+      created_at: string;
+    }>;
+    if (rows.length === 0) return null;
+    const row = rows[0];
+    return {
+      sessionId: row.session_id,
+      sessionType: row.session_type as SessionType,
+      identifier: row.identifier,
+      expiresAt: row.expires_at,
+      createdAt: row.created_at,
+    };
   } catch {
     return null;
   }
@@ -202,8 +230,20 @@ export async function getActiveSessionsByIdentifier(
   const rows = (await sql.query(
     "SELECT session_id, session_type, identifier, expires_at, created_at FROM user_sessions WHERE session_type = $1 AND identifier = $2 AND expires_at > NOW() ORDER BY created_at DESC",
     [sessionType, identifier]
-  )) as UserSession[];
-  return rows;
+  )) as Array<{
+    session_id: string;
+    session_type: string;
+    identifier: string;
+    expires_at: string;
+    created_at: string;
+  }>;
+  return rows.map((row) => ({
+    sessionId: row.session_id,
+    sessionType: row.session_type as SessionType,
+    identifier: row.identifier,
+    expiresAt: row.expires_at,
+    createdAt: row.created_at,
+  }));
 }
 
 /**
