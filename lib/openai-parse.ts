@@ -3,57 +3,53 @@ import type { JobRecord, TechStackNormalized } from "./types";
 
 const JD_PARSE_MODEL = "gpt-4o-mini";
 const MAX_JD_CHARS = 60_000;
+const OPENAI_TIMEOUT_MS = 45_000;
+const SALARY_ESTIMATE_TIMEOUT_MS = 20_000;
+const MAX_RETRIES = 2;
+const RETRY_DELAY_MS = 1000;
+const MAX_TOKENS_RESPONSE = 3000;
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY ?? "",
+  timeout: OPENAI_TIMEOUT_MS,
 });
 
-const SYSTEM_PROMPT = `You are a precise job description parser. You receive the COMPLETE raw job description. Extract structured data from the ENTIRE text with exact accuracy. Respond with valid JSON only—no markdown, no code fences, no extra text.
+const SYSTEM_PROMPT = `Extract structured data from the job description. Return valid JSON only—no markdown, no code fences.
 
-CRITICAL - Missing or unknown data:
-- For any field not present in the JD or not inferable from context: use null for optional fields, use "" (empty string) for required string fields, use [] for techStack when none listed. Do NOT use placeholders like "Unknown", "Not specified", "Pasted", "N/A". Empty or null means "not in JD".
-- source: use "" when source is not stated in the JD (do not use "Pasted" unless the JD explicitly says so).
-- salaryCurrency: use null when salary is not mentioned; use "USD" only when JD explicitly says USD (or $). Use "INR" when JD says INR, LPA, or Indian Rupees. Use "" only when salary range is given but currency not stated.
-- salaryPeriod: use "yearly" only when JD states annual/yearly/LPA; use "monthly" or "hourly" when stated; otherwise null if unclear.
+Read ALL sections: header, company info, job details, requirements, tech stack, salary, location.
 
-Required JSON keys (use exactly these):
-- title: string (exact job title from JD; "" if not found)
-- company: string (primary brand/company name as shown first; "" if not found)
-- companyPublisher: string | null ("Published by: X" or "Parent company: X" → X; else null)
-- location: string (exact location from JD; prefer full form e.g. "Pune, Maharashtra, India" when city + country/region are clear; "" if not found)
-- salaryMin: number | null (numeric only; null if not mentioned)
-- salaryMax: number | null (numeric only; null if not mentioned)
-- salaryCurrency: string | null (exact from JD: "USD", "INR", "EUR", etc.; null when salary not mentioned; "" only when salary range is given but currency not stated)
-- salaryPeriod: "hourly" | "monthly" | "yearly" | null (null if not stated)
-- techStack: string[] (flat list of ALL skills/tech from JD; [] if none. Keep this complete.)
-- techStackNormalized: object (see below; use null if you cannot categorize)
-- role: string (exact role from JD when stated; when implied infer from context: e.g. "lead the development of X" → "Lead Front-End Developer" or "Front-End Developer (Lead)"; use title as fallback when no distinct role; never leave empty—use title if needed)
-- experience: string (exact range/level from JD e.g. "2-4 years"; if not stated but role implies mid/senior, use e.g. "Mid-level (experience required, years not specified)"; use "Not specified" when JD gives no indication—never leave empty)
-- jobType: string | null ("full-time", "part-time", "contract", etc.; infer "full-time" when JD implies permanent employment; null only if unclear)
-- availability: string | null ("Immediate", "2 weeks", etc.; null if not mentioned)
-- product: string | null (main product/system/project name from JD, e.g. "Duruper.com", "Acme Platform"; null if not stated)
-- seniority: string | null (infer from clues: "lead and manage", "large scale", "provide feedback to peers", "mentor" → "mid-senior" or "senior"; "entry-level", "0-2 years" → "junior"; "3-6 years", "experienced" → "mid" or "mid-senior"; null if unclear)
-- collaborationTools: string[] | null (tools mentioned in requirements: Slack, Notion, Jira, Confluence, etc.; [] or null if none)
-- source: string (where JD is from, if stated; "" if unknown)
-- applicantsCount: number | null (e.g. "222 Applicants" → 222; null if not stated)
-- education: string | null (e.g. "Bachelor's in CS/IT or equivalent"; null if not stated)
-- postedAt: string | null (exact date as YYYY-MM-DD when given; when only relative use as-is: "1 year ago", "2 months ago"; null if not stated)
+Fields:
+- title: exact job title ("" if not found)
+- company: primary company name from header/title ("" if not found)
+- companyPublisher: "Published by: X" → X, else null
+- location: full location e.g. "Bengaluru, Karnataka, India" ("" if not found)
+- salaryMin/Max: numbers only, null if not mentioned. Single value → use same for both. Monthly: keep as "monthly" period.
+- salaryCurrency: "USD", "INR", "EUR", etc. Infer INR if India location. null if no salary.
+- salaryPeriod: "yearly" (LPA/annual), "monthly", "hourly", or null
+- techStack: string[] of ALL tech/skills mentioned. [] if none.
+- techStackNormalized: categorize into languages, frameworks, stateManagement, data, apis, buildTools, styling, testing, databases, devOps, collaborationTools, etc. null if none.
+- role: exact role or infer from context. Use title if no distinct role.
+- experience: exact wording e.g. "0-3 years". "Not specified" if absent.
+- jobType: "full-time", "part-time", "contract", etc. Infer "full-time" if permanent. null if unclear.
+- availability: "ASAP", "Immediate", "2 weeks", etc. null if not mentioned.
+- product: product name from "About [Company]" sections. null if not stated.
+- seniority: infer from clues ("lead/manage"→senior, "0-2 years"→junior, "3-6 years"→mid). null if unclear.
+- collaborationTools: string[] e.g. ["Slack","Notion","Jira"]. null if none.
+- source: where JD is from ("" if unknown)
+- applicantsCount: number e.g. "Over 100" → 100. null if not stated.
+- education: e.g. "Bachelor's in CS/IT". null if not stated.
+- postedAt: YYYY-MM-DD or relative "2 days ago". null if not stated.
 
-Salary (must be exact):
-- Indian LPA: 1 LPA = 100,000 INR. "7-11 LPA" → salaryMin: 700000, salaryMax: 1100000, salaryCurrency: "INR", salaryPeriod: "yearly". No rounding.
-- Other: use absolute numbers (e.g. "80k-120k" USD → 80000, 120000). Never use thousands (e.g. 80 for 80k).
+Salary rules:
+- LPA: 1 LPA = 100,000 INR. "7-11 LPA" → min:700000, max:1100000, currency:"INR", period:"yearly"
+- Monthly: "80k/month" → min:80000, max:80000, period:"monthly" (keep monthly)
+- Ranges: "80k-120k/month" → min:80000, max:120000, period:"monthly"
+- Use absolute numbers: "80k" → 80000, not 80
+- Infer INR for India locations if currency not stated
 
-Experience & role:
-- Use exact wording from JD for experience (e.g. "2-4 Years" → "2-4 years"). For role: infer from context when implied (e.g. "lead the development of X" → "Lead Front-End Developer"). If absent, use "Not specified" for experience; for role use title when no distinct role stated.
+Missing data: null for optional, "" for required strings, [] for arrays. No placeholders like "Unknown" or "N/A".
 
-Tech stack (complete and accurate):
-- techStack: flat string[] with EVERY technology, framework, tool, and skill. Include collaboration tools (Slack, Notion, Jira) in techStack when mentioned. Use canonical casing: "JUnit" not "Junit", "Design Patterns" not "design patterns", "REST" not "Rest". Frontend: languages, frameworks, state (Redux, Zustand), data (TanStack Query), APIs (REST, GraphQL), build tools, package managers, styling, testing, concepts, version control. Backend: languages (Java, Golang, C#), frameworks (Spring, Hibernate), databases (PostgreSQL, RDBMS), architecture (Microservices), APIs (REST), testing (JUnit, Cucumber, Mockito), devOps (Docker, Kubernetes, BASH), concepts (OOP, Design Patterns, RDBMS, System Design), methodologies (Agile). Deduplicate. [] if none.
-- techStackNormalized: categorize into these keys (each optional string[]; omit key if empty): languages, frameworks, stateManagement, data, apis, buildTools, packageManagers, styling, testing, concepts, versionControl, databases, architecture, devOps, methodologies, designPrinciples, operatingSystems, collaborationTools. data = data-fetching/client data libs (e.g. TanStack Query). collaborationTools = Slack, Notion, Jira, Confluence, etc. Frontend example: frameworks: ["Next.js","Styled Components","Tailwind CSS"], stateManagement: ["Zustand","Recoil"], data: ["TanStack Query"], concepts: ["performance optimization","collaboration","testing","documentation","scaling"], collaborationTools: ["Slack","Notion","Jira"]. Use null for techStackNormalized only if JD has no tech/skills at all.
-
-Output rules:
-- Exactly one JSON object. No array wrapper. No extra keys. Include every key listed above (use null, "", or [] when missing).
-- Extract only what is in the text. Do not guess or invent. Missing → null or "" or [] as above.
-- Never use the string "null" or "N/A" for values—use JSON null for optional fields, "" for required strings when absent, [] for empty arrays.`;
+Output: Single JSON object with all keys above. Use JSON null, not string "null".`;
 
 export interface ParseResult {
   title: string;
@@ -98,144 +94,461 @@ async function fetchEstimatedSalary(
   }
 
   try {
-    const searchQuery = `What is the average salary range for ${role} position at ${company} with ${experience} experience in ${location}? Search for current market salary data and return ONLY a valid JSON object with these exact keys: salaryMin (number), salaryMax (number), salaryCurrency (string like "USD" or "INR"), and salaryPeriod (string: "yearly", "monthly", or "hourly"). If salary data is not found, return: {"salaryMin": null, "salaryMax": null, "salaryCurrency": null, "salaryPeriod": null}`;
+    const searchQuery = `What is the average salary range for ${role} position${company ? ` at ${company}` : ""} with ${experience} experience in ${location}? Search for current market salary data and return ONLY a valid JSON object with these exact keys: salaryMin (number), salaryMax (number), salaryCurrency (string like "USD" or "INR"), and salaryPeriod (string: "yearly", "monthly", or "hourly"). If salary data is not found, return: {"salaryMin": null, "salaryMax": null, "salaryCurrency": null, "salaryPeriod": null}`;
 
-    const response = await (openai as any).responses.create({
-      model: "gpt-5-nano",
-      tools: [{ type: "web_search" }],
-      input: searchQuery,
+    let timeoutId: NodeJS.Timeout | null = null;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(new Error("Salary estimation timeout"));
+      }, SALARY_ESTIMATE_TIMEOUT_MS);
     });
 
-    if (response?.output_text) {
-      const text = response.output_text.trim();
+    let response;
+    try {
+      response = await Promise.race([
+        (openai as any).responses.create({
+          model: "gpt-5",
+          tools: [{ type: "web_search" }],
+          input: searchQuery,
+        }),
+        timeoutPromise,
+      ]);
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    }
 
-      let jsonStart = text.indexOf("{");
-      let jsonEnd = text.lastIndexOf("}");
+    if (!response?.output_text) {
+      return null;
+    }
 
-      if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
-        try {
-          const jsonStr = text.substring(jsonStart, jsonEnd + 1);
-          const parsed = JSON.parse(jsonStr) as EstimatedSalaryResult;
+    const text = response.output_text.trim();
 
-          if (parsed.salaryMin != null || parsed.salaryMax != null) {
-            let currency = parsed.salaryCurrency;
-            if (!currency) {
-              const locationLower = location.toLowerCase();
-              if (
-                locationLower.includes("india") ||
-                locationLower.includes("inr") ||
-                locationLower.includes("bangalore") ||
-                locationLower.includes("mumbai") ||
-                locationLower.includes("delhi") ||
-                locationLower.includes("hyderabad") ||
-                locationLower.includes("pune") ||
-                locationLower.includes("chennai")
-              ) {
-                currency = "INR";
-              } else {
-                currency = "USD";
-              }
-            }
+    let jsonStart = text.indexOf("{");
+    let jsonEnd = text.lastIndexOf("}");
 
-            const period = parsed.salaryPeriod || "yearly";
+    if (jsonStart === -1 || jsonEnd === -1 || jsonEnd <= jsonStart) {
+      const numbers = text.match(/\d{1,3}(?:,\d{3})*(?:\.\d+)?/g);
+      if (numbers && numbers.length >= 2) {
+        const min = parseFloat(numbers[0].replace(/,/g, ""));
+        const max = parseFloat(numbers[1].replace(/,/g, ""));
+        if (!isNaN(min) && !isNaN(max) && min > 0 && max > 0) {
+          const locationLower = location.toLowerCase();
+          const currency =
+            locationLower.includes("india") ||
+            locationLower.includes("inr") ||
+            locationLower.includes("bangalore") ||
+            locationLower.includes("bengaluru") ||
+            locationLower.includes("mumbai") ||
+            locationLower.includes("delhi") ||
+            locationLower.includes("hyderabad") ||
+            locationLower.includes("pune") ||
+            locationLower.includes("chennai") ||
+            locationLower.includes("karnataka") ||
+            locationLower.includes("maharashtra")
+              ? "INR"
+              : "USD";
+          return {
+            salaryMin: min,
+            salaryMax: max,
+            salaryCurrency: currency,
+            salaryPeriod: "yearly",
+          };
+        }
+      }
+      return null;
+    }
 
-            return {
-              salaryMin: parsed.salaryMin ?? null,
-              salaryMax: parsed.salaryMax ?? null,
-              salaryCurrency: currency,
-              salaryPeriod: period as "hourly" | "monthly" | "yearly",
-            };
-          }
-        } catch (parseError) {
-          console.log("JSON parsing failed, attempting to extract numbers from text");
-          const numbers = text.match(/\d{1,3}(?:,\d{3})*(?:\.\d+)?/g);
-          if (numbers && numbers.length >= 2) {
-            const min = parseFloat(numbers[0].replace(/,/g, ""));
-            const max = parseFloat(numbers[1].replace(/,/g, ""));
-            if (!isNaN(min) && !isNaN(max) && min > 0 && max > 0) {
-              const locationLower = location.toLowerCase();
-              const currency =
-                locationLower.includes("india") ||
-                locationLower.includes("inr") ||
-                locationLower.includes("bangalore") ||
-                locationLower.includes("mumbai") ||
-                locationLower.includes("delhi") ||
-                locationLower.includes("hyderabad") ||
-                locationLower.includes("pune") ||
-                locationLower.includes("chennai")
-                  ? "INR"
-                  : "USD";
-              return {
-                salaryMin: min,
-                salaryMax: max,
-                salaryCurrency: currency,
-                salaryPeriod: "yearly",
-              };
-            }
-          }
+    try {
+      const jsonStr = text.substring(jsonStart, jsonEnd + 1);
+      const parsed = JSON.parse(jsonStr) as EstimatedSalaryResult;
+
+      if (parsed.salaryMin != null || parsed.salaryMax != null) {
+        let currency = parsed.salaryCurrency;
+        if (!currency) {
+          const locationLower = location.toLowerCase();
+          currency =
+            locationLower.includes("india") ||
+            locationLower.includes("inr") ||
+            locationLower.includes("bangalore") ||
+            locationLower.includes("bengaluru") ||
+            locationLower.includes("mumbai") ||
+            locationLower.includes("delhi") ||
+            locationLower.includes("hyderabad") ||
+            locationLower.includes("pune") ||
+            locationLower.includes("chennai") ||
+            locationLower.includes("karnataka") ||
+            locationLower.includes("maharashtra")
+              ? "INR"
+              : "USD";
+        }
+
+        return {
+          salaryMin: parsed.salaryMin ?? null,
+          salaryMax: parsed.salaryMax ?? null,
+          salaryCurrency: currency,
+          salaryPeriod: parsed.salaryPeriod || "yearly",
+        };
+      }
+    } catch (parseError) {
+      if (process.env.NODE_ENV === "development") {
+        console.log("Salary estimation JSON parse failed:", parseError);
+        console.log("Raw response:", text);
+      }
+
+      const numbers = text.match(/\d{1,3}(?:,\d{3})*(?:\.\d+)?/g);
+      if (numbers && numbers.length >= 2) {
+        const min = parseFloat(numbers[0].replace(/,/g, ""));
+        const max = parseFloat(numbers[1].replace(/,/g, ""));
+        if (!isNaN(min) && !isNaN(max) && min > 0 && max > 0) {
+          const locationLower = location.toLowerCase();
+          const currency =
+            locationLower.includes("india") ||
+            locationLower.includes("inr") ||
+            locationLower.includes("bangalore") ||
+            locationLower.includes("bengaluru") ||
+            locationLower.includes("mumbai") ||
+            locationLower.includes("delhi") ||
+            locationLower.includes("hyderabad") ||
+            locationLower.includes("pune") ||
+            locationLower.includes("chennai") ||
+            locationLower.includes("karnataka") ||
+            locationLower.includes("maharashtra")
+              ? "INR"
+              : "USD";
+          return {
+            salaryMin: min,
+            salaryMax: max,
+            salaryCurrency: currency,
+            salaryPeriod: "yearly",
+          };
         }
       }
     }
   } catch (e) {
-    console.error("Error fetching estimated salary with GPT-5 nano:", e);
+    if (process.env.NODE_ENV === "development") {
+      console.log(
+        "Salary estimation failed (non-critical):",
+        e instanceof Error ? e.message : String(e)
+      );
+    }
   }
 
   return null;
 }
 
+async function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function parseJobDescription(jdText: string): Promise<ParseResult> {
+  const startTime = Date.now();
+
   if (!process.env.OPENAI_API_KEY) {
     throw new Error("OPENAI_API_KEY is not set");
   }
-  const text = jdText.trim();
-  if (!text) throw new Error("Job description text is empty");
-  const content = text.length <= MAX_JD_CHARS ? text : text.slice(0, MAX_JD_CHARS);
-  const completion = await openai.chat.completions.create({
-    model: JD_PARSE_MODEL,
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content },
-    ],
-    response_format: { type: "json_object" },
-    temperature: 0.15,
-  });
-  const rawContent = completion.choices[0]?.message?.content;
-  if (!rawContent) throw new Error("Empty response from OpenAI");
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(rawContent) as ParseResult;
-  } catch {
-    throw new Error("Invalid JSON in parse response");
+
+  // Validate input
+  if (typeof jdText !== "string") {
+    throw new Error("Job description must be a string");
   }
-  const normalized = normalizeParseResult(parsed as ParseResult);
 
-  const hasSalaryFromJD = normalized.salaryMin != null || normalized.salaryMax != null;
+  const text = jdText.trim();
+  if (!text) {
+    throw new Error("Job description text is empty");
+  }
 
-  if (hasSalaryFromJD) {
-    normalized.salaryEstimated = false;
-  } else {
-    if (normalized.company && normalized.role && normalized.location) {
-      const estimated = await fetchEstimatedSalary(
-        normalized.company,
-        normalized.role,
-        normalized.experience,
-        normalized.location
+  if (text.length > MAX_JD_CHARS) {
+    if (process.env.NODE_ENV === "development") {
+      console.warn(
+        `[Parse] Job description truncated from ${text.length} to ${MAX_JD_CHARS} characters`
       );
-      if (estimated && (estimated.salaryMin != null || estimated.salaryMax != null)) {
-        normalized.salaryMin = estimated.salaryMin;
-        normalized.salaryMax = estimated.salaryMax;
-        normalized.salaryCurrency = estimated.salaryCurrency;
-        normalized.salaryPeriod = estimated.salaryPeriod;
-        normalized.salaryEstimated = true;
-      } else {
-        normalized.salaryEstimated = false;
-      }
-    } else {
-      normalized.salaryEstimated = false;
     }
   }
 
-  return normalized;
+  const content = text.length <= MAX_JD_CHARS ? text : text.slice(0, MAX_JD_CHARS);
+
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      if (attempt > 0) {
+        const delay = RETRY_DELAY_MS * Math.pow(2, attempt - 1);
+        if (process.env.NODE_ENV === "development") {
+          console.log(`[Parse] Retry attempt ${attempt} after ${delay}ms delay`);
+        }
+        await sleep(delay);
+      }
+
+      const requestStartTime = Date.now();
+
+      let timeoutId: NodeJS.Timeout | null = null;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error("Request timeout - parsing took too long"));
+        }, OPENAI_TIMEOUT_MS);
+      });
+
+      let completion;
+      try {
+        completion = await Promise.race([
+          openai.chat.completions.create({
+            model: JD_PARSE_MODEL,
+            messages: [
+              { role: "system", content: SYSTEM_PROMPT },
+              { role: "user", content },
+            ],
+            response_format: { type: "json_object" },
+            temperature: 0.15,
+            max_tokens: MAX_TOKENS_RESPONSE,
+          }),
+          timeoutPromise,
+        ]);
+      } catch (apiError) {
+        // Handle API-specific errors
+        if (apiError instanceof Error) {
+          if (apiError.message.includes("timeout")) {
+            throw apiError; // Let retry logic handle it
+          }
+          if (apiError.message.includes("401") || apiError.message.includes("Unauthorized")) {
+            throw new Error("OpenAI API authentication failed. Please check your API key.");
+          }
+          if (apiError.message.includes("429") || apiError.message.includes("rate limit")) {
+            throw new Error("OpenAI API rate limit exceeded. Please try again later.");
+          }
+          if (apiError.message.includes("500") || apiError.message.includes("503")) {
+            throw new Error("OpenAI API service unavailable. Please try again later.");
+          }
+        }
+        throw apiError;
+      } finally {
+        // Always clear timeout to prevent memory leaks
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+      }
+
+      // Validate completion structure
+      if (
+        !completion ||
+        !completion.choices ||
+        !Array.isArray(completion.choices) ||
+        completion.choices.length === 0
+      ) {
+        throw new Error("Invalid response structure from OpenAI");
+      }
+
+      const requestDuration = Date.now() - requestStartTime;
+      if (process.env.NODE_ENV === "development") {
+        console.log(
+          `[Parse] OpenAI API call completed in ${requestDuration}ms (attempt ${attempt + 1})`
+        );
+      }
+
+      const rawContent = completion.choices[0]?.message?.content;
+      if (!rawContent || typeof rawContent !== "string") {
+        throw new Error("Empty or invalid response from OpenAI");
+      }
+
+      const finishReason = completion.choices[0]?.finish_reason;
+      if (finishReason === "length") {
+        if (process.env.NODE_ENV === "development") {
+          console.warn(
+            `[Parse] Response may be truncated (finish_reason: length). Response length: ${rawContent.length} chars.`
+          );
+        }
+        // Try to parse anyway - might still have valid JSON
+      }
+
+      if (finishReason === "content_filter") {
+        throw new Error("Response was filtered by OpenAI content policy");
+      }
+
+      if (finishReason === "stop" && rawContent.length < 10) {
+        throw new Error("Response too short - likely incomplete");
+      }
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(rawContent) as ParseResult;
+      } catch (parseError) {
+        // Try to fix common JSON issues
+        let fixedContent = rawContent.trim();
+
+        // Remove markdown code fences
+        if (fixedContent.startsWith("```")) {
+          const lines = fixedContent.split("\n");
+          const startIdx = lines[0].toLowerCase().includes("json") ? 1 : 0;
+          const endIdx = lines[lines.length - 1].trim() === "```" ? lines.length - 1 : lines.length;
+          fixedContent = lines.slice(startIdx, endIdx).join("\n").trim();
+        }
+
+        // Try to extract JSON object if wrapped in text
+        if (!fixedContent.startsWith("{")) {
+          const jsonStart = fixedContent.indexOf("{");
+          const jsonEnd = fixedContent.lastIndexOf("}");
+          if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+            fixedContent = fixedContent.substring(jsonStart, jsonEnd + 1);
+          }
+        }
+
+        try {
+          parsed = JSON.parse(fixedContent) as ParseResult;
+        } catch (retryError) {
+          const errorMsg = `Invalid JSON in parse response: ${parseError instanceof Error ? parseError.message : "Unknown error"}`;
+          if (process.env.NODE_ENV === "development") {
+            console.error(`[Parse] JSON parse error after fixes:`, errorMsg);
+            console.error(`[Parse] Raw response length:`, rawContent.length);
+            console.error(`[Parse] Raw response (first 1000 chars):`, rawContent.slice(0, 1000));
+            console.error(`[Parse] Fixed content (first 500 chars):`, fixedContent.slice(0, 500));
+          }
+          throw new Error(errorMsg);
+        }
+      }
+
+      // Validate parsed result has required fields
+      if (!parsed || typeof parsed !== "object") {
+        throw new Error("Parsed result is not an object");
+      }
+
+      const parsedObj = parsed as Record<string, unknown>;
+      if (
+        typeof parsedObj.title !== "string" ||
+        typeof parsedObj.company !== "string" ||
+        typeof parsedObj.location !== "string"
+      ) {
+        if (process.env.NODE_ENV === "development") {
+          console.warn("[Parse] Parsed result missing required fields:", {
+            hasTitle: typeof parsedObj.title === "string",
+            hasCompany: typeof parsedObj.company === "string",
+            hasLocation: typeof parsedObj.location === "string",
+          });
+        }
+        // Try to fix - use empty strings for missing required fields
+        if (typeof parsedObj.title !== "string") parsedObj.title = "";
+        if (typeof parsedObj.company !== "string") parsedObj.company = "";
+        if (typeof parsedObj.location !== "string") parsedObj.location = "";
+      }
+
+      const normalized = normalizeParseResult(parsed as ParseResult);
+
+      const hasSalaryFromJD = normalized.salaryMin != null || normalized.salaryMax != null;
+
+      // Only fetch salary estimation if salary is missing and we have required fields
+      if (!hasSalaryFromJD && normalized.company && normalized.role && normalized.location) {
+        // Validate required fields are not empty
+        const hasValidFields =
+          normalized.company.trim().length > 0 &&
+          normalized.role.trim().length > 0 &&
+          normalized.location.trim().length > 0 &&
+          normalized.experience.trim().length > 0;
+
+        if (hasValidFields) {
+          try {
+            const estimated = await fetchEstimatedSalary(
+              normalized.company,
+              normalized.role,
+              normalized.experience,
+              normalized.location
+            );
+
+            if (estimated && (estimated.salaryMin != null || estimated.salaryMax != null)) {
+              // Validate estimated salary values
+              if (
+                (estimated.salaryMin == null ||
+                  (Number.isFinite(estimated.salaryMin) && estimated.salaryMin >= 0)) &&
+                (estimated.salaryMax == null ||
+                  (Number.isFinite(estimated.salaryMax) && estimated.salaryMax >= 0))
+              ) {
+                normalized.salaryMin = estimated.salaryMin;
+                normalized.salaryMax = estimated.salaryMax;
+                normalized.salaryCurrency = estimated.salaryCurrency;
+                normalized.salaryPeriod = estimated.salaryPeriod;
+                normalized.salaryEstimated = true;
+              } else {
+                normalized.salaryEstimated = false;
+              }
+            } else {
+              normalized.salaryEstimated = false;
+            }
+          } catch (salaryError) {
+            // Don't fail the entire parse if salary estimation fails
+            if (process.env.NODE_ENV === "development") {
+              console.log(
+                `[Parse] Salary estimation failed (non-critical):`,
+                salaryError instanceof Error ? salaryError.message : String(salaryError)
+              );
+            }
+            normalized.salaryEstimated = false;
+          }
+        } else {
+          normalized.salaryEstimated = false;
+        }
+      } else {
+        normalized.salaryEstimated = false;
+      }
+
+      const totalDuration = Date.now() - startTime;
+      if (process.env.NODE_ENV === "development") {
+        console.log(`[Parse] Total parse time: ${totalDuration}ms`);
+      }
+
+      return normalized;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+
+      // Classify errors for retry logic
+      const isRetryable =
+        error instanceof Error &&
+        (error.message.includes("timeout") ||
+          error.message.includes("rate limit") ||
+          error.message.includes("429") ||
+          error.message.includes("503") ||
+          error.message.includes("502") ||
+          error.message.includes("500") ||
+          error.message.includes("service unavailable") ||
+          error.message.includes("network") ||
+          error.message.includes("ECONNRESET") ||
+          error.message.includes("ETIMEDOUT") ||
+          (error.message.includes("Invalid JSON") && attempt < MAX_RETRIES) ||
+          (error.message.includes("truncated") && attempt < MAX_RETRIES));
+
+      const isNonRetryable =
+        error instanceof Error &&
+        (error.message.includes("Empty response") ||
+          error.message.includes("Invalid response structure") ||
+          error.message.includes("content policy") ||
+          error.message.includes("authentication failed") ||
+          error.message.includes("OPENAI_API_KEY is not set") ||
+          error.message.includes("Job description text is empty") ||
+          error.message.includes("must be a string") ||
+          error.message.includes("Response too short"));
+
+      if (process.env.NODE_ENV === "development") {
+        console.error(`[Parse] Attempt ${attempt + 1} failed:`, lastError.message);
+      }
+
+      if (isNonRetryable) {
+        throw lastError;
+      }
+
+      if (isRetryable && attempt < MAX_RETRIES) {
+        continue;
+      }
+
+      if (attempt === MAX_RETRIES || !isRetryable) {
+        const totalDuration = Date.now() - startTime;
+        if (process.env.NODE_ENV === "development") {
+          console.error(`[Parse] Failed after ${totalDuration}ms and ${attempt + 1} attempts`);
+        }
+        throw lastError;
+      }
+    }
+  }
+
+  throw lastError || new Error("Parse failed after retries");
 }
 
 function dedupeTechStack(items: string[]): string[] {
@@ -338,14 +651,61 @@ function normalizeParseResult(raw: ParseResult): ParseResult {
     salaryPeriod = raw.salaryPeriod;
   }
 
-  const salaryMin =
-    typeof raw.salaryMin === "number" && Number.isFinite(raw.salaryMin) && raw.salaryMin >= 0
-      ? raw.salaryMin
-      : null;
-  const salaryMax =
-    typeof raw.salaryMax === "number" && Number.isFinite(raw.salaryMax) && raw.salaryMax >= 0
-      ? raw.salaryMax
-      : null;
+  // Validate and normalize salary values
+  let salaryMin: number | null = null;
+  let salaryMax: number | null = null;
+
+  if (raw.salaryMin != null) {
+    const minValue =
+      typeof raw.salaryMin === "number" ? raw.salaryMin : parseFloat(String(raw.salaryMin));
+    if (Number.isFinite(minValue) && minValue >= 0 && minValue <= 1_000_000_000) {
+      salaryMin = Math.round(minValue);
+    }
+  }
+
+  if (raw.salaryMax != null) {
+    const maxValue =
+      typeof raw.salaryMax === "number" ? raw.salaryMax : parseFloat(String(raw.salaryMax));
+    if (Number.isFinite(maxValue) && maxValue >= 0 && maxValue <= 1_000_000_000) {
+      salaryMax = Math.round(maxValue);
+    }
+  }
+
+  // Validate salary range (max should be >= min)
+  if (salaryMin != null && salaryMax != null && salaryMax < salaryMin) {
+    // Swap if max < min (common error)
+    [salaryMin, salaryMax] = [salaryMax, salaryMin];
+  }
+
+  // Convert monthly to yearly
+  if (salaryPeriod === "monthly" && (salaryMin != null || salaryMax != null)) {
+    if (salaryMin != null) {
+      const yearlyMin = salaryMin * 12;
+      salaryMin =
+        Number.isFinite(yearlyMin) && yearlyMin <= 1_000_000_000 ? Math.round(yearlyMin) : null;
+    }
+    if (salaryMax != null) {
+      const yearlyMax = salaryMax * 12;
+      salaryMax =
+        Number.isFinite(yearlyMax) && yearlyMax <= 1_000_000_000 ? Math.round(yearlyMax) : null;
+    }
+    salaryPeriod = "yearly";
+  }
+
+  // Convert hourly to yearly (2080 hours = 40 hours/week * 52 weeks)
+  if (salaryPeriod === "hourly" && (salaryMin != null || salaryMax != null)) {
+    if (salaryMin != null) {
+      const yearlyMin = salaryMin * 2080;
+      salaryMin =
+        Number.isFinite(yearlyMin) && yearlyMin <= 1_000_000_000 ? Math.round(yearlyMin) : null;
+    }
+    if (salaryMax != null) {
+      const yearlyMax = salaryMax * 2080;
+      salaryMax =
+        Number.isFinite(yearlyMax) && yearlyMax <= 1_000_000_000 ? Math.round(yearlyMax) : null;
+    }
+    salaryPeriod = "yearly";
+  }
 
   const techStack = Array.isArray(raw.techStack)
     ? dedupeTechStack(
@@ -365,6 +725,27 @@ function normalizeParseResult(raw: ParseResult): ParseResult {
     postedAtRaw && postedAtRaw.length > 0 && postedAtRaw.length <= 128 ? postedAtRaw : null;
 
   const hasSalary = salaryMin != null || salaryMax != null;
+
+  if (hasSalary && !salaryCurrency) {
+    const locationLower = location.toLowerCase();
+    if (
+      locationLower.includes("india") ||
+      locationLower.includes("inr") ||
+      locationLower.includes("bangalore") ||
+      locationLower.includes("bengaluru") ||
+      locationLower.includes("mumbai") ||
+      locationLower.includes("delhi") ||
+      locationLower.includes("hyderabad") ||
+      locationLower.includes("pune") ||
+      locationLower.includes("chennai") ||
+      locationLower.includes("karnataka") ||
+      locationLower.includes("maharashtra") ||
+      locationLower.includes("tamil nadu") ||
+      locationLower.includes("telangana")
+    ) {
+      salaryCurrency = "INR";
+    }
+  }
 
   const collaborationTools =
     Array.isArray(raw.collaborationTools) && raw.collaborationTools.length > 0
