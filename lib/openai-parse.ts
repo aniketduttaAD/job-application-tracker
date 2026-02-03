@@ -77,6 +77,110 @@ export interface ParseResult {
   applicantsCount?: number | null;
   education?: string | null;
   postedAt?: string | null;
+  salaryEstimated?: boolean;
+}
+
+interface EstimatedSalaryResult {
+  salaryMin: number | null;
+  salaryMax: number | null;
+  salaryCurrency: string | null;
+  salaryPeriod: "hourly" | "monthly" | "yearly" | null;
+}
+
+async function fetchEstimatedSalary(
+  company: string,
+  role: string,
+  experience: string,
+  location: string
+): Promise<EstimatedSalaryResult | null> {
+  if (!process.env.OPENAI_API_KEY) {
+    return null;
+  }
+
+  try {
+    const searchQuery = `What is the average salary range for ${role} position at ${company} with ${experience} experience in ${location}? Search for current market salary data and return ONLY a valid JSON object with these exact keys: salaryMin (number), salaryMax (number), salaryCurrency (string like "USD" or "INR"), and salaryPeriod (string: "yearly", "monthly", or "hourly"). If salary data is not found, return: {"salaryMin": null, "salaryMax": null, "salaryCurrency": null, "salaryPeriod": null}`;
+
+    const response = await (openai as any).responses.create({
+      model: "gpt-5-nano",
+      tools: [{ type: "web_search" }],
+      input: searchQuery,
+    });
+
+    if (response?.output_text) {
+      const text = response.output_text.trim();
+
+      let jsonStart = text.indexOf("{");
+      let jsonEnd = text.lastIndexOf("}");
+
+      if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+        try {
+          const jsonStr = text.substring(jsonStart, jsonEnd + 1);
+          const parsed = JSON.parse(jsonStr) as EstimatedSalaryResult;
+
+          if (parsed.salaryMin != null || parsed.salaryMax != null) {
+            let currency = parsed.salaryCurrency;
+            if (!currency) {
+              const locationLower = location.toLowerCase();
+              if (
+                locationLower.includes("india") ||
+                locationLower.includes("inr") ||
+                locationLower.includes("bangalore") ||
+                locationLower.includes("mumbai") ||
+                locationLower.includes("delhi") ||
+                locationLower.includes("hyderabad") ||
+                locationLower.includes("pune") ||
+                locationLower.includes("chennai")
+              ) {
+                currency = "INR";
+              } else {
+                currency = "USD";
+              }
+            }
+
+            const period = parsed.salaryPeriod || "yearly";
+
+            return {
+              salaryMin: parsed.salaryMin ?? null,
+              salaryMax: parsed.salaryMax ?? null,
+              salaryCurrency: currency,
+              salaryPeriod: period as "hourly" | "monthly" | "yearly",
+            };
+          }
+        } catch (parseError) {
+          console.log("JSON parsing failed, attempting to extract numbers from text");
+          const numbers = text.match(/\d{1,3}(?:,\d{3})*(?:\.\d+)?/g);
+          if (numbers && numbers.length >= 2) {
+            const min = parseFloat(numbers[0].replace(/,/g, ""));
+            const max = parseFloat(numbers[1].replace(/,/g, ""));
+            if (!isNaN(min) && !isNaN(max) && min > 0 && max > 0) {
+              const locationLower = location.toLowerCase();
+              const currency =
+                locationLower.includes("india") ||
+                locationLower.includes("inr") ||
+                locationLower.includes("bangalore") ||
+                locationLower.includes("mumbai") ||
+                locationLower.includes("delhi") ||
+                locationLower.includes("hyderabad") ||
+                locationLower.includes("pune") ||
+                locationLower.includes("chennai")
+                  ? "INR"
+                  : "USD";
+              return {
+                salaryMin: min,
+                salaryMax: max,
+                salaryCurrency: currency,
+                salaryPeriod: "yearly",
+              };
+            }
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error("Error fetching estimated salary with GPT-5 nano:", e);
+  }
+
+  return null;
 }
 
 export async function parseJobDescription(jdText: string): Promise<ParseResult> {
@@ -103,7 +207,35 @@ export async function parseJobDescription(jdText: string): Promise<ParseResult> 
   } catch {
     throw new Error("Invalid JSON in parse response");
   }
-  return normalizeParseResult(parsed as ParseResult);
+  const normalized = normalizeParseResult(parsed as ParseResult);
+
+  const hasSalaryFromJD = normalized.salaryMin != null || normalized.salaryMax != null;
+
+  if (hasSalaryFromJD) {
+    normalized.salaryEstimated = false;
+  } else {
+    if (normalized.company && normalized.role && normalized.location) {
+      const estimated = await fetchEstimatedSalary(
+        normalized.company,
+        normalized.role,
+        normalized.experience,
+        normalized.location
+      );
+      if (estimated && (estimated.salaryMin != null || estimated.salaryMax != null)) {
+        normalized.salaryMin = estimated.salaryMin;
+        normalized.salaryMax = estimated.salaryMax;
+        normalized.salaryCurrency = estimated.salaryCurrency;
+        normalized.salaryPeriod = estimated.salaryPeriod;
+        normalized.salaryEstimated = true;
+      } else {
+        normalized.salaryEstimated = false;
+      }
+    } else {
+      normalized.salaryEstimated = false;
+    }
+  }
+
+  return normalized;
 }
 
 function dedupeTechStack(items: string[]): string[] {
@@ -261,6 +393,7 @@ function normalizeParseResult(raw: ParseResult): ParseResult {
     applicantsCount,
     education: capOptionalString(trimOrNull(raw.education), 2000),
     postedAt,
+    salaryEstimated: raw.salaryEstimated ?? false,
   };
 }
 
@@ -288,6 +421,7 @@ export function parseResultToJobRecord(
     salaryMax: result.salaryMax,
     salaryCurrency: result.salaryCurrency,
     salaryPeriod: result.salaryPeriod ?? "yearly",
+    salaryEstimated: result.salaryEstimated ?? false,
     techStack: result.techStack,
     techStackNormalized: result.techStackNormalized ?? undefined,
     role: result.role,

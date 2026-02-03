@@ -8,7 +8,7 @@ export async function POST(request: NextRequest) {
   if (!isApiAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!validateUnlockToken(request)) {
+  if (!(await validateUnlockToken(request))) {
     return NextResponse.json({ error: "Unlock required" }, { status: 401 });
   }
   if (!process.env.OPENAI_API_KEY) {

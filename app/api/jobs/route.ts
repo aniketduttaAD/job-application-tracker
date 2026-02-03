@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
   if (!isReadAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!validateUnlockToken(request)) {
+  if (!(await validateUnlockToken(request))) {
     return NextResponse.json({ error: "Unlock required" }, { status: 401 });
   }
   const data = await readJobs();
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
   if (!isApiAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!validateUnlockToken(request)) {
+  if (!(await validateUnlockToken(request))) {
     return NextResponse.json({ error: "Unlock required" }, { status: 401 });
   }
   let body: unknown;
@@ -114,6 +114,18 @@ export async function POST(request: NextRequest) {
         b.salaryPeriod === "hourly" || b.salaryPeriod === "monthly" || b.salaryPeriod === "yearly"
           ? b.salaryPeriod
           : "yearly",
+      salaryEstimated:
+        typeof b.salaryEstimated === "boolean"
+          ? b.salaryEstimated
+          : b.salaryEstimated === true || b.salaryEstimated === "true" || b.salaryEstimated === 1
+            ? true
+            : b.salaryEstimated === false ||
+                b.salaryEstimated === "false" ||
+                b.salaryEstimated === 0 ||
+                b.salaryEstimated === null ||
+                b.salaryEstimated === undefined
+              ? false
+              : false,
       techStack: trimCapArray(b.techStack, MAX_ARRAY_ITEMS),
       techStackNormalized: normalizeTechStackFromBody(b.techStackNormalized),
       role: trimCap(b.role) || trimCap(b.title) || "",

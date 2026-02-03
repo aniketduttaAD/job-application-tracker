@@ -19,9 +19,19 @@ export async function POST(request: NextRequest) {
     body != null && typeof body === "object" && "password" in body
       ? (body as { password: unknown }).password
       : undefined;
+  const deviceId =
+    body != null && typeof body === "object" && "deviceId" in body
+      ? String((body as { deviceId: unknown }).deviceId)
+      : undefined;
+
   if (!checkPassword(password)) {
     return NextResponse.json({ error: "Invalid password" }, { status: 401 });
   }
-  const token = createUnlockToken();
+
+  if (!deviceId) {
+    return NextResponse.json({ error: "Device ID required" }, { status: 400 });
+  }
+
+  const token = await createUnlockToken(deviceId);
   return NextResponse.json({ unlocked: true, token });
 }

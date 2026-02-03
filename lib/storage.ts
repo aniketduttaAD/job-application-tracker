@@ -4,13 +4,13 @@ import type { JobsData, JobRecord, TechStackNormalized } from "./types";
 const sql = process.env.DATABASE_URL ? neon(process.env.DATABASE_URL) : null;
 
 const INSERT_COLUMNS = `id, title, company, company_publisher, location,
-  salary_min, salary_max, salary_currency, salary_period,
+  salary_min, salary_max, salary_currency, salary_period, salary_estimated,
   tech_stack, tech_stack_normalized, role, experience,
   job_type, availability, product, seniority, collaboration_tools,
   status, applied_at, posted_at, applicants_count, education, source,
   jd_raw, notes, created_at, updated_at`;
 const INSERT_PLACEHOLDERS = `$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-  $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28`;
+     $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29`;
 
 function jobToInsertParams(job: JobRecord): unknown[] {
   return [
@@ -23,6 +23,7 @@ function jobToInsertParams(job: JobRecord): unknown[] {
     job.salaryMax ?? null,
     job.salaryCurrency ?? null,
     job.salaryPeriod ?? null,
+    job.salaryEstimated ?? false,
     JSON.stringify(job.techStack ?? []),
     job.techStackNormalized != null ? JSON.stringify(job.techStackNormalized) : null,
     job.role,
@@ -61,6 +62,7 @@ function rowToJob(row: Record<string, unknown>): JobRecord {
       row.salary_period === "yearly"
         ? row.salary_period
         : undefined,
+    salaryEstimated: row.salary_estimated === true,
     techStack: Array.isArray(row.tech_stack) ? row.tech_stack.map(String) : [],
     techStackNormalized:
       row.tech_stack_normalized != null && typeof row.tech_stack_normalized === "object"
@@ -153,12 +155,12 @@ export async function updateJob(
   await sql.query(
     `UPDATE jobs SET
       title = $2, company = $3, company_publisher = $4, location = $5,
-      salary_min = $6, salary_max = $7, salary_currency = $8, salary_period = $9,
-      tech_stack = $10, tech_stack_normalized = $11, role = $12, experience = $13,
-      job_type = $14, availability = $15, product = $16, seniority = $17,
-      collaboration_tools = $18, status = $19, applied_at = $20, posted_at = $21,
-      applicants_count = $22, education = $23, source = $24, jd_raw = $25, notes = $26,
-      updated_at = $27
+      salary_min = $6, salary_max = $7, salary_currency = $8, salary_period = $9, salary_estimated = $10,
+      tech_stack = $11, tech_stack_normalized = $12, role = $13, experience = $14,
+      job_type = $15, availability = $16, product = $17, seniority = $18,
+      collaboration_tools = $19, status = $20, applied_at = $21, posted_at = $22,
+      applicants_count = $23, education = $24, source = $25, jd_raw = $26, notes = $27,
+      updated_at = $28
     WHERE id = $1`,
     [
       id,
@@ -170,6 +172,7 @@ export async function updateJob(
       merged.salaryMax ?? null,
       merged.salaryCurrency ?? null,
       merged.salaryPeriod ?? null,
+      merged.salaryEstimated ?? false,
       JSON.stringify(merged.techStack ?? []),
       merged.techStackNormalized != null ? JSON.stringify(merged.techStackNormalized) : null,
       merged.role,

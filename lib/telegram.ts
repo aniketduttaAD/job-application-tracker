@@ -118,7 +118,7 @@ function escapeHtml(s: string): string {
 }
 
 function formatSalary(job: JobRecord): string {
-  const { salaryMin, salaryMax, salaryCurrency, salaryPeriod } = job;
+  const { salaryMin, salaryMax, salaryCurrency, salaryPeriod, salaryEstimated } = job;
   const period = salaryPeriod || "yearly";
   const curr = (salaryCurrency || "").trim();
   const isINRLakhs =
@@ -127,19 +127,22 @@ function formatSalary(job: JobRecord): string {
     (salaryMin == null || salaryMin >= 100_000) &&
     (salaryMax == null || salaryMax >= 100_000);
   const toLPA = (n: number) => (n / 100_000).toFixed(n % 100_000 === 0 ? 0 : 1);
+  let salaryStr = "";
   if (salaryMin != null && salaryMax != null) {
-    if (isINRLakhs) return `${curr ? curr + " " : ""}${toLPA(salaryMin)} - ${toLPA(salaryMax)} LPA`;
-    return `${curr ? curr + " " : ""}${salaryMin.toLocaleString()} - ${salaryMax.toLocaleString()}/${period}`;
+    if (isINRLakhs)
+      salaryStr = `${curr ? curr + " " : ""}${toLPA(salaryMin)} - ${toLPA(salaryMax)} LPA`;
+    else
+      salaryStr = `${curr ? curr + " " : ""}${salaryMin.toLocaleString()} - ${salaryMax.toLocaleString()}/${period}`;
+  } else if (salaryMin != null) {
+    if (isINRLakhs) salaryStr = `${curr ? curr + " " : ""}${toLPA(salaryMin)}+ LPA`;
+    else salaryStr = `${curr ? curr + " " : ""}${salaryMin.toLocaleString()}+/${period}`;
+  } else if (salaryMax != null) {
+    if (isINRLakhs) salaryStr = `${curr ? curr + " " : ""}up to ${toLPA(salaryMax)} LPA`;
+    else salaryStr = `${curr ? curr + " " : ""}up to ${salaryMax.toLocaleString()}/${period}`;
+  } else {
+    return "—";
   }
-  if (salaryMin != null) {
-    if (isINRLakhs) return `${curr ? curr + " " : ""}${toLPA(salaryMin)}+ LPA`;
-    return `${curr ? curr + " " : ""}${salaryMin.toLocaleString()}+/${period}`;
-  }
-  if (salaryMax != null) {
-    if (isINRLakhs) return `${curr ? curr + " " : ""}up to ${toLPA(salaryMax)} LPA`;
-    return `${curr ? curr + " " : ""}up to ${salaryMax.toLocaleString()}/${period}`;
-  }
-  return "—";
+  return salaryEstimated ? `${salaryStr} (estimated)` : salaryStr;
 }
 
 function emptyStr(s: string | null | undefined): string {

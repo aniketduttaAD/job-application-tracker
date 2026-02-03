@@ -31,6 +31,7 @@ export interface JobRecord {
   salaryMax?: number | null;
   salaryCurrency?: string | null;
   salaryPeriod?: "hourly" | "monthly" | "yearly";
+  salaryEstimated?: boolean;
   techStack: string[];
   techStackNormalized?: TechStackNormalized | null;
   role: string;

@@ -18,7 +18,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   if (!isReadAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!validateUnlockToken(request)) {
+  if (!(await validateUnlockToken(request))) {
     return NextResponse.json({ error: "Unlock required" }, { status: 401 });
   }
   const { id } = await params;
@@ -34,7 +34,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (!isApiAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!validateUnlockToken(request)) {
+  if (!(await validateUnlockToken(request))) {
     return NextResponse.json({ error: "Unlock required" }, { status: 401 });
   }
   const { id } = await params;
@@ -61,7 +61,7 @@ export async function DELETE(
   if (!isApiAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!validateUnlockToken(request)) {
+  if (!(await validateUnlockToken(request))) {
     return NextResponse.json({ error: "Unlock required" }, { status: 401 });
   }
   const { id } = await params;

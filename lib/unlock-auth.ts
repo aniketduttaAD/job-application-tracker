@@ -1,39 +1,53 @@
 import { NextRequest } from "next/server";
-import { randomBytes } from "crypto";
+import {
+  createSession,
+  isValidSession,
+  deleteSession,
+  getSession,
+  cleanupExpiredSessionsIfNeeded,
+  type SessionType,
+} from "./session";
 
 const APP_PASSWORD = process.env.APP_PASSWORD ?? "";
-const TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-
-const tokens = new Map<string, number>();
-
-function pruneExpired(): void {
-  const now = Date.now();
-  for (const [token, expiry] of tokens.entries()) {
-    if (expiry <= now) tokens.delete(token);
-  }
-}
+const SESSION_TTL_MS = 15 * 24 * 60 * 60 * 1000;
 
 export function isUnlockRequired(): boolean {
   return APP_PASSWORD.length > 0;
 }
 
-export function createUnlockToken(): string {
-  pruneExpired();
-  const token = randomBytes(32).toString("hex");
-  tokens.set(token, Date.now() + TOKEN_TTL_MS);
-  return token;
+/**
+ * Create a browser unlock session
+ * @param deviceId - Unique identifier for the device/browser
+ * @returns Session ID (token)
+ */
+export async function createUnlockToken(deviceId: string): Promise<string> {
+  await cleanupExpiredSessionsIfNeeded();
+  return await createSession("browser", deviceId, SESSION_TTL_MS);
 }
 
-export function validateUnlockToken(request: NextRequest): boolean {
+/**
+ * Validate unlock token from request
+ */
+export async function validateUnlockToken(request: NextRequest): Promise<boolean> {
   if (!isUnlockRequired()) return true;
+  await cleanupExpiredSessionsIfNeeded();
   const token = request.headers.get("x-unlock-token")?.trim();
   if (!token) return false;
-  const expiry = tokens.get(token);
-  if (expiry == null || expiry <= Date.now()) {
-    tokens.delete(token);
-    return false;
-  }
-  return true;
+  return await isValidSession(token, "browser");
+}
+
+/**
+ * Delete unlock session
+ */
+export async function deleteUnlockSession(sessionId: string): Promise<void> {
+  await deleteSession(sessionId);
+}
+
+/**
+ * Get session details
+ */
+export async function getUnlockSession(sessionId: string) {
+  return await getSession(sessionId);
 }
 
 export function checkPassword(password: unknown): boolean {

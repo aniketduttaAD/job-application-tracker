@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
   if (!isReadAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!validateUnlockToken(request)) {
+  if (!(await validateUnlockToken(request))) {
     return NextResponse.json({ error: "Unlock required" }, { status: 401 });
   }
   const { searchParams } = new URL(request.url);

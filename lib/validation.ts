@@ -50,6 +50,7 @@ export const PATCH_JOB_ALLOWED_KEYS = [
   "salaryMax",
   "salaryCurrency",
   "salaryPeriod",
+  "salaryEstimated",
   "techStack",
   "techStackNormalized",
   "role",
@@ -91,6 +92,8 @@ export function sanitizePatchValues(body: Record<string, unknown>): Record<strin
       out[key] = trimCapArray(value, MAX_ARRAY_ITEMS);
     } else if (PATCH_LONG_TEXT_KEYS.has(key)) {
       out[key] = value != null ? trimCap(value, MAX_LONG_TEXT_LENGTH) : value;
+    } else if (key === "salaryEstimated") {
+      out[key] = typeof value === "boolean" ? value : value === true || value === "true";
     } else if (typeof value === "string") {
       out[key] = trimCap(value, MAX_STRING_LENGTH) ?? value;
     } else {

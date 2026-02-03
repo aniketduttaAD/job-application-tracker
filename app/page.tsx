@@ -1,16 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Image from "next/image";
 import {
   Search,
   Filter,
   Plus,
   Trash2,
-  MapPin,
   Briefcase,
-  DollarSign,
   Code,
-  Clock,
   Loader2,
   FileText,
   X,
@@ -20,11 +18,25 @@ import {
 } from "lucide-react";
 import type { JobRecord } from "@/lib/types";
 
-const UNLOCK_STORAGE_KEY = "jobtracker_unlock_token";
+const DEVICE_ID_KEY = "jobtracker_device_id";
+
+/**
+ * Get or generate a device ID for this browser session
+ * Uses sessionStorage so it persists across page reloads but clears when browser closes
+ */
+function getDeviceId(): string {
+  if (typeof window === "undefined") return "";
+  let deviceId = sessionStorage.getItem(DEVICE_ID_KEY);
+  if (!deviceId) {
+    deviceId = `browser_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+    sessionStorage.setItem(DEVICE_ID_KEY, deviceId);
+  }
+  return deviceId;
+}
 
 function getApiHeaders(unlockToken: string | null): HeadersInit {
   const headers: HeadersInit = { "Content-Type": "application/json" };
-  if (unlockToken) (headers as Record<string, string>)["X-Unlock-Token"] = unlockToken;
+  if (unlockToken) (headers as Record<string, string>)["x-unlock-token"] = unlockToken;
   return headers;
 }
 
@@ -62,7 +74,9 @@ export default function HomePage() {
   const clearUnlock = useCallback(() => {
     setUnlockToken(null);
     setUnlocked(false);
-    if (typeof window !== "undefined") window.localStorage.removeItem(UNLOCK_STORAGE_KEY);
+    if (typeof window !== "undefined") {
+      sessionStorage.removeItem(DEVICE_ID_KEY + "_token");
+    }
   }, []);
 
   const fetchJobs = useCallback(
@@ -97,12 +111,12 @@ export default function HomePage() {
         await fetchJobs(null);
         return;
       }
-      const stored =
-        typeof window !== "undefined" ? window.localStorage.getItem(UNLOCK_STORAGE_KEY) : null;
-      if (stored) {
-        setUnlockToken(stored);
+      const storedToken =
+        typeof window !== "undefined" ? sessionStorage.getItem(DEVICE_ID_KEY + "_token") : null;
+      if (storedToken) {
+        setUnlockToken(storedToken);
         setUnlocked(true);
-        await fetchJobs(stored);
+        await fetchJobs(storedToken);
       } else {
         setUnlocked(false);
       }
@@ -233,20 +247,62 @@ export default function HomePage() {
 
   const handleParse = async () => {
     if (!parsePaste.trim()) return;
+
+    if (unlockRequired === null) {
+      setParseResult({ error: "Please wait..." });
+      return;
+    }
+
     setParseLoading(true);
     setParseResult(null);
     try {
+      let token: string | null = null;
+      if (unlockRequired) {
+        if (typeof window !== "undefined") {
+          token = sessionStorage.getItem(DEVICE_ID_KEY + "_token");
+          if (token && token !== unlockToken) {
+            setUnlockToken(token);
+            setUnlocked(true);
+          }
+        }
+        if (!token) {
+          token = unlockToken;
+        }
+        if (!token) {
+          setParseResult({ error: "Please unlock first by entering the password" });
+          setParseLoading(false);
+          return;
+        }
+      }
+
       const res = await fetch("/api/jobs/parse", {
         method: "POST",
-        headers: getApiHeaders(unlockToken),
+        headers: getApiHeaders(token),
         body: JSON.stringify({ jd: parsePaste.trim() }),
       });
-      if (res.status === 401) clearUnlock();
+
       const data = await res.json().catch(() => ({}));
-      if (res.ok) setParseResult(data);
-      else setParseResult({ error: data.error ?? "Parse failed" });
-    } catch {
-      setParseResult({ error: "Request failed" });
+
+      if (res.status === 401) {
+        if (data.error === "Unlock required" || data.error === "Unauthorized") {
+          clearUnlock();
+          if (typeof window !== "undefined") {
+            sessionStorage.removeItem(DEVICE_ID_KEY + "_token");
+          }
+          setParseResult({ error: "Session expired. Please unlock again." });
+        } else {
+          setParseResult({ error: data.error ?? "Authentication failed" });
+        }
+      } else if (res.ok) {
+        setParseResult(data);
+      } else {
+        setParseResult({ error: data.error ?? "Parse failed" });
+      }
+    } catch (error) {
+      if (process.env.NODE_ENV === "development") {
+        console.error("Parse error:", error);
+      }
+      setParseResult({ error: "Request failed. Please try again." });
     } finally {
       setParseLoading(false);
     }
@@ -290,15 +346,16 @@ export default function HomePage() {
     if (!unlockPassword.trim()) return;
     setUnlockLoading(true);
     try {
+      const deviceId = getDeviceId();
       const res = await fetch("/api/auth/unlock", {
         method: "POST",
         headers: getApiHeaders(null),
-        body: JSON.stringify({ password: unlockPassword }),
+        body: JSON.stringify({ password: unlockPassword, deviceId }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.token) {
         if (typeof window !== "undefined")
-          window.localStorage.setItem(UNLOCK_STORAGE_KEY, data.token);
+          sessionStorage.setItem(DEVICE_ID_KEY + "_token", data.token);
         setUnlockToken(data.token);
         setUnlocked(true);
         setUnlockPassword("");
@@ -313,8 +370,23 @@ export default function HomePage() {
     }
   };
 
+  const handleLock = async () => {
+    if (!unlockToken) return;
+    try {
+      const res = await fetch("/api/auth/lock", {
+        method: "POST",
+        headers: getApiHeaders(unlockToken),
+      });
+      if (res.ok) {
+        clearUnlock();
+      }
+    } catch {
+      clearUnlock();
+    }
+  };
+
   const formatSalary = (job: JobRecord) => {
-    const { salaryMin, salaryMax, salaryCurrency, salaryPeriod } = job;
+    const { salaryMin, salaryMax, salaryCurrency, salaryPeriod, salaryEstimated } = job;
     const period = salaryPeriod || "yearly";
     const curr = (salaryCurrency || "").trim();
     const isINRLakhs =
@@ -323,20 +395,22 @@ export default function HomePage() {
       (salaryMin == null || salaryMin >= 100_000) &&
       (salaryMax == null || salaryMax >= 100_000);
     const toLPA = (n: number) => (n / 100_000).toFixed(n % 100_000 === 0 ? 0 : 1);
+    let salaryStr = "";
     if (salaryMin != null && salaryMax != null) {
       if (isINRLakhs)
-        return `${curr ? curr + " " : ""}${toLPA(salaryMin)} - ${toLPA(salaryMax)} LPA`;
-      return `${curr ? curr + " " : ""}${salaryMin.toLocaleString()} - ${salaryMax.toLocaleString()}/${period}`;
+        salaryStr = `${curr ? curr + " " : ""}${toLPA(salaryMin)} - ${toLPA(salaryMax)} LPA`;
+      else
+        salaryStr = `${curr ? curr + " " : ""}${salaryMin.toLocaleString()} - ${salaryMax.toLocaleString()}/${period}`;
+    } else if (salaryMin != null) {
+      if (isINRLakhs) salaryStr = `${curr ? curr + " " : ""}${toLPA(salaryMin)}+ LPA`;
+      else salaryStr = `${curr ? curr + " " : ""}${salaryMin.toLocaleString()}+/${period}`;
+    } else if (salaryMax != null) {
+      if (isINRLakhs) salaryStr = `${curr ? curr + " " : ""}up to ${toLPA(salaryMax)} LPA`;
+      else salaryStr = `${curr ? curr + " " : ""}up to ${salaryMax.toLocaleString()}/${period}`;
+    } else {
+      return "—";
     }
-    if (salaryMin != null) {
-      if (isINRLakhs) return `${curr ? curr + " " : ""}${toLPA(salaryMin)}+ LPA`;
-      return `${curr ? curr + " " : ""}${salaryMin.toLocaleString()}+/${period}`;
-    }
-    if (salaryMax != null) {
-      if (isINRLakhs) return `${curr ? curr + " " : ""}up to ${toLPA(salaryMax)} LPA`;
-      return `${curr ? curr + " " : ""}up to ${salaryMax.toLocaleString()}/${period}`;
-    }
-    return "—";
+    return salaryEstimated ? `${salaryStr} (estimated)` : salaryStr;
   };
 
   const emptyToDash = (s: string | null | undefined) =>
@@ -443,9 +517,17 @@ export default function HomePage() {
           <header className="sticky top-0 z-20 border-b border-beige-300 bg-beige-100/95 backdrop-blur supports-[backdrop-filter]:bg-beige-100/80">
             <div className="mx-auto max-w-6xl px-4 py-4 sm:px-6 sm:py-5">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
-                <h1 className="shrink-0 text-xl font-semibold text-stone-800 sm:text-2xl">
-                  Job Tracker
-                </h1>
+                <div className="flex shrink-0 items-center gap-3">
+                  <Image
+                    src="/icon.png"
+                    alt="Job Tracker Icon"
+                    width={32}
+                    height={32}
+                    className="rounded-lg"
+                    priority
+                  />
+                  <h1 className="text-xl font-semibold text-stone-800 sm:text-2xl">Job Tracker</h1>
+                </div>
                 <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
                   <div className="relative w-full min-w-0 sm:max-w-xs">
                     <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 shrink-0 text-stone-400 pointer-events-none" />
@@ -461,6 +543,17 @@ export default function HomePage() {
                     )}
                   </div>
                   <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+                    {unlockRequired && unlocked && (
+                      <button
+                        type="button"
+                        onClick={handleLock}
+                        className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-beige-300 bg-beige-100 px-4 py-2.5 text-sm font-medium text-stone-700 hover:bg-beige-200 focus:outline-none focus:ring-2 focus:ring-orange-brand/20"
+                        title="Lock session"
+                      >
+                        <Lock className="h-4 w-4 shrink-0" />
+                        Lock
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => setShowFilters((v) => !v)}
@@ -472,11 +565,15 @@ export default function HomePage() {
                     <button
                       type="button"
                       onClick={() => {
+                        if (unlockRequired && !unlocked) {
+                          return;
+                        }
                         setParseModalOpen(true);
                         setParsePaste("");
                         setParseResult(null);
                       }}
-                      className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-lg bg-orange-brand px-4 py-2.5 text-sm font-medium text-white hover:bg-orange-dark focus:outline-none focus:ring-2 focus:ring-orange-brand/30 focus:ring-offset-2 focus:ring-offset-beige-50 sm:flex-initial"
+                      disabled={unlockRequired === true && !unlocked}
+                      className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-lg bg-orange-brand px-4 py-2.5 text-sm font-medium text-white hover:bg-orange-dark focus:outline-none focus:ring-2 focus:ring-orange-brand/30 focus:ring-offset-2 focus:ring-offset-beige-50 disabled:opacity-50 disabled:cursor-not-allowed sm:flex-initial"
                     >
                       <Plus className="h-4 w-4 shrink-0" />
                       Add from JD
