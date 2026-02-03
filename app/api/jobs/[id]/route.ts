@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isApiAuthorized, isReadAuthorized } from "@/lib/auth";
+import { validateUnlockToken } from "@/lib/unlock-auth";
 import { readJobs, updateJob, deleteJob } from "@/lib/storage";
 import { validateUUID, sanitizePatchBody, sanitizePatchValues } from "@/lib/validation";
 import type { JobStatus } from "@/lib/types";
@@ -17,6 +18,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   if (!isReadAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  if (!validateUnlockToken(request)) {
+    return NextResponse.json({ error: "Unlock required" }, { status: 401 });
+  }
   const { id } = await params;
   const safeId = validateUUID(id);
   if (!safeId) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
@@ -29,6 +33,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   if (!isApiAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!validateUnlockToken(request)) {
+    return NextResponse.json({ error: "Unlock required" }, { status: 401 });
   }
   const { id } = await params;
   const safeId = validateUUID(id);
@@ -53,6 +60,9 @@ export async function DELETE(
 ) {
   if (!isApiAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!validateUnlockToken(request)) {
+    return NextResponse.json({ error: "Unlock required" }, { status: 401 });
   }
   const { id } = await params;
   const safeId = validateUUID(id);

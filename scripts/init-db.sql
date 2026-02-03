@@ -34,3 +34,8 @@ CREATE TABLE IF NOT EXISTS jobs (
 
 CREATE INDEX IF NOT EXISTS idx_jobs_applied_at ON jobs (applied_at DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs (status);
+
+CREATE TABLE IF NOT EXISTS telegram_sessions (
+  chat_id TEXT PRIMARY KEY,
+  expires_at TIMESTAMPTZ NOT NULL
+);

@@ -12,8 +12,17 @@ import {
   parseJobCallbackData,
   answerCallbackQuery,
 } from "@/lib/telegram";
+import {
+  isTelegramChatUnlocked,
+  setTelegramChatUnlocked,
+  clearTelegramChatSession,
+} from "@/lib/telegram-session";
+import { checkPassword, isUnlockRequired } from "@/lib/unlock-auth";
 import type { JobRecord, JobStatus } from "@/lib/types";
 import { v4 as uuidv4 } from "uuid";
+
+const TELEGRAM_UNLOCK_PROMPT =
+  "This bot is protected. Send <code>/unlock &lt;password&gt;</code> to continue.";
 
 const PENDING_ADD_TTL_MS = 5 * 60 * 1000;
 const VALID_STATUSES: JobStatus[] = [
@@ -79,9 +88,48 @@ function getApiHeaders(): HeadersInit {
   return h;
 }
 
+async function ensureTelegramUnlocked(chatId: number, text: string): Promise<boolean> {
+  if (!isUnlockRequired()) return true;
+  const unlocked = await isTelegramChatUnlocked(chatId);
+  if (unlocked) return true;
+
+  const trimmed = text?.trim() ?? "";
+  const parsed = parseCommand(trimmed);
+  const isUnlockCommand = parsed?.command === "unlock";
+  const passwordFromCommand = parsed?.args?.[0] ?? "";
+  const rawPassword = !parsed && trimmed ? trimmed : "";
+
+  const passwordToCheck = isUnlockCommand ? passwordFromCommand : rawPassword;
+  if (passwordToCheck && checkPassword(passwordToCheck)) {
+    await setTelegramChatUnlocked(chatId);
+    await sendTelegramMessage(
+      chatId,
+      "✅ Unlocked. You can use /list, /add, /search, etc. Send /help for commands."
+    );
+    return true;
+  }
+
+  if (parsed?.command === "lock") {
+    await clearTelegramChatSession(chatId);
+    await sendTelegramMessage(
+      chatId,
+      "🔒 Session cleared. Send /unlock <password> to use the bot again."
+    );
+    return false;
+  }
+
+  await sendTelegramMessage(chatId, TELEGRAM_UNLOCK_PROMPT, {
+    parse_mode: "HTML",
+  });
+  return false;
+}
+
 async function handleMessage(chatId: number, text: string, request: NextRequest): Promise<void> {
   const origin = getApiOrigin(request);
   const headers = getApiHeaders();
+
+  const allowed = await ensureTelegramUnlocked(chatId, text);
+  if (!allowed) return;
 
   if (isPendingSearch(chatId)) {
     if (text.startsWith("/")) {
@@ -167,6 +215,18 @@ async function handleMessage(chatId: number, text: string, request: NextRequest)
     case "start":
     case "help": {
       await sendTelegramMessage(chatId, getHelpText(), { parse_mode: "HTML" });
+      return;
+    }
+
+    case "unlock":
+      return;
+
+    case "lock": {
+      await clearTelegramChatSession(chatId);
+      await sendTelegramMessage(
+        chatId,
+        "🔒 Session cleared. Send /unlock <password> to use the bot again."
+      );
       return;
     }
 
@@ -316,12 +376,18 @@ export async function POST(request: NextRequest) {
     try {
       await answerCallbackQuery(cq.id);
       if (jobId != null && chatId != null) {
-        const data = await readJobs();
-        const job = (data.jobs ?? []).find((j) => j.id === jobId);
-        if (job) {
-          await sendTelegramMessage(chatId, formatJobFull(job), { parse_mode: "HTML" });
+        if (isUnlockRequired() && !(await isTelegramChatUnlocked(chatId))) {
+          await sendTelegramMessage(chatId, TELEGRAM_UNLOCK_PROMPT, {
+            parse_mode: "HTML",
+          });
         } else {
-          await sendTelegramMessage(chatId, "Job not found.");
+          const data = await readJobs();
+          const job = (data.jobs ?? []).find((j) => j.id === jobId);
+          if (job) {
+            await sendTelegramMessage(chatId, formatJobFull(job), { parse_mode: "HTML" });
+          } else {
+            await sendTelegramMessage(chatId, "Job not found.");
+          }
         }
       }
     } catch (e) {

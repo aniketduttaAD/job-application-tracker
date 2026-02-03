@@ -218,7 +218,7 @@ export function parseCommand(text: string): { command: string; args: string[] } 
 }
 
 export function getHelpText(): string {
-  return [
+  const lines = [
     "<b>Job Tracker Bot</b>",
     "",
     "<b>/add</b> — Add a job. Send this, then paste the job description in your next message. I'll parse and add it.",
@@ -226,7 +226,15 @@ export function getHelpText(): string {
     "<b>/list</b> — List latest 20 jobs. Each item is clickable; tap to see full details.",
     "",
     "<b>/search</b> — Search jobs. Send /search, then send your search query in the next message. Results are clickable for full details.",
-    "",
-    "/help — Show this message",
-  ].join("\n");
+  ];
+  if (process.env.APP_PASSWORD) {
+    lines.push(
+      "",
+      "<b>/unlock</b> &lt;password&gt; — Unlock the bot (required once per chat).",
+      "",
+      "<b>/lock</b> — Clear your session; you'll need to unlock again."
+    );
+  }
+  lines.push("", "/help — Show this message");
+  return lines.join("\n");
 }

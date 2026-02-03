@@ -1,9 +1,49 @@
 import { neon } from "@neondatabase/serverless";
 import type { JobsData, JobRecord, TechStackNormalized } from "./types";
 
-const sql = process.env.DATABASE_URL
-  ? neon(process.env.DATABASE_URL)
-  : null;
+const sql = process.env.DATABASE_URL ? neon(process.env.DATABASE_URL) : null;
+
+const INSERT_COLUMNS = `id, title, company, company_publisher, location,
+  salary_min, salary_max, salary_currency, salary_period,
+  tech_stack, tech_stack_normalized, role, experience,
+  job_type, availability, product, seniority, collaboration_tools,
+  status, applied_at, posted_at, applicants_count, education, source,
+  jd_raw, notes, created_at, updated_at`;
+const INSERT_PLACEHOLDERS = `$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+  $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28`;
+
+function jobToInsertParams(job: JobRecord): unknown[] {
+  return [
+    job.id,
+    job.title,
+    job.company,
+    job.companyPublisher ?? null,
+    job.location,
+    job.salaryMin ?? null,
+    job.salaryMax ?? null,
+    job.salaryCurrency ?? null,
+    job.salaryPeriod ?? null,
+    JSON.stringify(job.techStack ?? []),
+    job.techStackNormalized != null ? JSON.stringify(job.techStackNormalized) : null,
+    job.role,
+    job.experience,
+    job.jobType ?? null,
+    job.availability ?? null,
+    job.product ?? null,
+    job.seniority ?? null,
+    job.collaborationTools != null ? JSON.stringify(job.collaborationTools) : null,
+    job.status,
+    job.appliedAt,
+    job.postedAt ?? null,
+    job.applicantsCount ?? null,
+    job.education ?? null,
+    job.source ?? null,
+    job.jdRaw ?? null,
+    job.notes ?? null,
+    job.createdAt,
+    job.updatedAt,
+  ];
+}
 
 function rowToJob(row: Record<string, unknown>): JobRecord {
   return {
@@ -36,15 +76,18 @@ function rowToJob(row: Record<string, unknown>): JobRecord {
       ? row.collaboration_tools.map(String)
       : null,
     status: String(row.status ?? "applied") as JobRecord["status"],
-    appliedAt: row.applied_at instanceof Date ? row.applied_at.toISOString() : String(row.applied_at ?? ""),
+    appliedAt:
+      row.applied_at instanceof Date ? row.applied_at.toISOString() : String(row.applied_at ?? ""),
     postedAt: row.posted_at != null ? String(row.posted_at) : null,
     applicantsCount: row.applicants_count != null ? Number(row.applicants_count) : null,
     education: row.education != null ? String(row.education) : null,
     source: row.source != null ? String(row.source) : undefined,
     jdRaw: row.jd_raw != null ? String(row.jd_raw) : undefined,
     notes: row.notes != null ? String(row.notes) : undefined,
-    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at ?? ""),
-    updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at ?? ""),
+    createdAt:
+      row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at ?? ""),
+    updatedAt:
+      row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at ?? ""),
   };
 }
 
@@ -56,9 +99,10 @@ export async function readJobs(): Promise<JobsData> {
   if (!sql) {
     return { jobs: [], updatedAt: new Date().toISOString() };
   }
-  const rows = (await sql.query(
-    "SELECT * FROM jobs ORDER BY applied_at DESC"
-  )) as Record<string, unknown>[];
+  const rows = (await sql.query("SELECT * FROM jobs ORDER BY applied_at DESC")) as Record<
+    string,
+    unknown
+  >[];
   const jobs = rows.map(rowToJob);
   const updatedAt =
     jobs.length > 0
@@ -72,47 +116,8 @@ export async function writeJobs(data: JobsData): Promise<void> {
   await sql.query("DELETE FROM jobs");
   for (const job of data.jobs) {
     await sql.query(
-      `INSERT INTO jobs (
-        id, title, company, company_publisher, location,
-        salary_min, salary_max, salary_currency, salary_period,
-        tech_stack, tech_stack_normalized, role, experience,
-        job_type, availability, product, seniority, collaboration_tools,
-        status, applied_at, posted_at, applicants_count, education, source,
-        jd_raw, notes, created_at, updated_at
-      ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-        $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28
-      )`,
-      [
-        job.id,
-        job.title,
-        job.company,
-        job.companyPublisher ?? null,
-        job.location,
-        job.salaryMin ?? null,
-        job.salaryMax ?? null,
-        job.salaryCurrency ?? null,
-        job.salaryPeriod ?? null,
-        JSON.stringify(job.techStack ?? []),
-        job.techStackNormalized != null ? JSON.stringify(job.techStackNormalized) : null,
-        job.role,
-        job.experience,
-        job.jobType ?? null,
-        job.availability ?? null,
-        job.product ?? null,
-        job.seniority ?? null,
-        job.collaborationTools != null ? JSON.stringify(job.collaborationTools) : null,
-        job.status,
-        job.appliedAt,
-        job.postedAt ?? null,
-        job.applicantsCount ?? null,
-        job.education ?? null,
-        job.source ?? null,
-        job.jdRaw ?? null,
-        job.notes ?? null,
-        job.createdAt,
-        job.updatedAt,
-      ]
+      `INSERT INTO jobs (${INSERT_COLUMNS}) VALUES (${INSERT_PLACEHOLDERS})`,
+      jobToInsertParams(job)
     );
   }
 }
@@ -120,47 +125,8 @@ export async function writeJobs(data: JobsData): Promise<void> {
 export async function addJob(job: JobRecord): Promise<JobRecord> {
   if (!sql) return job;
   await sql.query(
-    `INSERT INTO jobs (
-      id, title, company, company_publisher, location,
-      salary_min, salary_max, salary_currency, salary_period,
-      tech_stack, tech_stack_normalized, role, experience,
-      job_type, availability, product, seniority, collaboration_tools,
-      status, applied_at, posted_at, applicants_count, education, source,
-      jd_raw, notes, created_at, updated_at
-    ) VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-      $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28
-    )`,
-    [
-      job.id,
-      job.title,
-      job.company,
-      job.companyPublisher ?? null,
-      job.location,
-      job.salaryMin ?? null,
-      job.salaryMax ?? null,
-      job.salaryCurrency ?? null,
-      job.salaryPeriod ?? null,
-      JSON.stringify(job.techStack ?? []),
-      job.techStackNormalized != null ? JSON.stringify(job.techStackNormalized) : null,
-      job.role,
-      job.experience,
-      job.jobType ?? null,
-      job.availability ?? null,
-      job.product ?? null,
-      job.seniority ?? null,
-      job.collaborationTools != null ? JSON.stringify(job.collaborationTools) : null,
-      job.status,
-      job.appliedAt,
-      job.postedAt ?? null,
-      job.applicantsCount ?? null,
-      job.education ?? null,
-      job.source ?? null,
-      job.jdRaw ?? null,
-      job.notes ?? null,
-      job.createdAt,
-      job.updatedAt,
-    ]
+    `INSERT INTO jobs (${INSERT_COLUMNS}) VALUES (${INSERT_PLACEHOLDERS})`,
+    jobToInsertParams(job)
   );
   return job;
 }
@@ -170,7 +136,10 @@ export async function updateJob(
   updates: Partial<JobRecord>
 ): Promise<JobRecord | null> {
   if (!sql) return null;
-  const existing = (await sql.query("SELECT * FROM jobs WHERE id = $1", [id])) as Record<string, unknown>[];
+  const existing = (await sql.query("SELECT * FROM jobs WHERE id = $1", [id])) as Record<
+    string,
+    unknown
+  >[];
   if (!existing.length) return null;
 
   const current = rowToJob(existing[0]);
@@ -226,15 +195,16 @@ export async function updateJob(
 
 export async function deleteJob(id: string): Promise<boolean> {
   if (!sql) return false;
-  const result = (await sql.query("DELETE FROM jobs WHERE id = $1 RETURNING id", [id])) as { id: string }[];
+  const result = (await sql.query("DELETE FROM jobs WHERE id = $1 RETURNING id", [id])) as {
+    id: string;
+  }[];
   return result.length > 0;
 }
 
 export async function deleteJobs(ids: string[]): Promise<number> {
   if (!sql || ids.length === 0) return 0;
-  const result = (await sql.query(
-    "DELETE FROM jobs WHERE id = ANY($1::text[]) RETURNING id",
-    [ids]
-  )) as { id: string }[];
+  const result = (await sql.query("DELETE FROM jobs WHERE id = ANY($1::text[]) RETURNING id", [
+    ids,
+  ])) as { id: string }[];
   return result.length;
 }

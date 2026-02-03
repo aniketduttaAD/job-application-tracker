@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isApiAuthorized } from "@/lib/auth";
+import { validateUnlockToken } from "@/lib/unlock-auth";
 import { parseJobDescription, parseResultToJobRecord } from "@/lib/openai-parse";
 import { MAX_JD_PARSE_LENGTH } from "@/lib/validation";
 
 export async function POST(request: NextRequest) {
   if (!isApiAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!validateUnlockToken(request)) {
+    return NextResponse.json({ error: "Unlock required" }, { status: 401 });
   }
   if (!process.env.OPENAI_API_KEY) {
     return NextResponse.json({ error: "OPENAI_API_KEY is not configured" }, { status: 503 });

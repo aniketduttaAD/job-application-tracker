@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isReadAuthorized } from "@/lib/auth";
+import { validateUnlockToken } from "@/lib/unlock-auth";
 import { readJobs } from "@/lib/storage";
 import { fuzzySearchJobs } from "@/lib/search";
 import { trimCap, MAX_STRING_LENGTH } from "@/lib/validation";
@@ -17,6 +18,9 @@ const VALID_STATUSES: JobStatus[] = [
 export async function GET(request: NextRequest) {
   if (!isReadAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!validateUnlockToken(request)) {
+    return NextResponse.json({ error: "Unlock required" }, { status: 401 });
   }
   const { searchParams } = new URL(request.url);
   const q = trimCap(searchParams.get("q") ?? "", MAX_STRING_LENGTH) ?? "";

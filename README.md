@@ -45,9 +45,11 @@ A personal app to track job applications. Store jobs in Postgres (Neon), paste j
    In the [Neon SQL Editor](https://console.neon.tech) (or any Postgres client), run the SQL in `scripts/init-db.sql` to create the `jobs` table.
 
 4. **Run**
+
    ```bash
    npm run dev
    ```
+
    Open [http://localhost:3000](http://localhost:3000).
 
    For Vercel: pull env with `vercel env pull .env.development.local` so `DATABASE_URL` is available locally.

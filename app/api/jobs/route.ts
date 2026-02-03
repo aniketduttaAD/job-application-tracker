@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isApiAuthorized, isReadAuthorized } from "@/lib/auth";
+import { validateUnlockToken } from "@/lib/unlock-auth";
 import { readJobs, addJob } from "@/lib/storage";
 import { v4 as uuidv4 } from "uuid";
 import {
@@ -62,6 +63,9 @@ export async function GET(request: NextRequest) {
   if (!isReadAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  if (!validateUnlockToken(request)) {
+    return NextResponse.json({ error: "Unlock required" }, { status: 401 });
+  }
   const data = await readJobs();
   return NextResponse.json(data);
 }
@@ -70,15 +74,15 @@ export async function POST(request: NextRequest) {
   if (!isApiAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  if (!validateUnlockToken(request)) {
+    return NextResponse.json({ error: "Unlock required" }, { status: 401 });
+  }
   let body: unknown;
   try {
     body = await request.json();
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Invalid JSON";
-    return NextResponse.json(
-      { error: "Invalid payload", detail: msg },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Invalid payload", detail: msg }, { status: 400 });
   }
   if (body == null || typeof body !== "object" || Array.isArray(body)) {
     return NextResponse.json(
@@ -107,9 +111,7 @@ export async function POST(request: NextRequest) {
           : undefined,
       salaryCurrency: b.salaryCurrency === null ? null : trim(b.salaryCurrency) || undefined,
       salaryPeriod:
-        b.salaryPeriod === "hourly" ||
-        b.salaryPeriod === "monthly" ||
-        b.salaryPeriod === "yearly"
+        b.salaryPeriod === "hourly" || b.salaryPeriod === "monthly" || b.salaryPeriod === "yearly"
           ? b.salaryPeriod
           : "yearly",
       techStack: trimCapArray(b.techStack, MAX_ARRAY_ITEMS),
@@ -121,13 +123,8 @@ export async function POST(request: NextRequest) {
       product: trimOpt(b.product) ?? null,
       seniority: trimOpt(b.seniority) ?? null,
       collaborationTools: trimCapArray(b.collaborationTools, MAX_ARRAY_ITEMS) || undefined,
-      status: VALID_STATUSES.includes(b.status as JobStatus)
-        ? (b.status as JobStatus)
-        : "applied",
-      appliedAt:
-        typeof b.appliedAt === "string" && b.appliedAt.trim()
-          ? b.appliedAt.trim()
-          : now,
+      status: VALID_STATUSES.includes(b.status as JobStatus) ? (b.status as JobStatus) : "applied",
+      appliedAt: typeof b.appliedAt === "string" && b.appliedAt.trim() ? b.appliedAt.trim() : now,
       postedAt: trimOpt(b.postedAt) ?? null,
       applicantsCount:
         typeof b.applicantsCount === "number" &&
@@ -146,9 +143,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(job);
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
-    return NextResponse.json(
-      { error: "Invalid payload", detail },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Invalid payload", detail }, { status: 400 });
   }
 }
