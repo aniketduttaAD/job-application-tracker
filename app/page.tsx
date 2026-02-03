@@ -15,6 +15,7 @@ import {
   Check,
   Eye,
   Lock,
+  Copy,
 } from "lucide-react";
 import type { JobRecord } from "@/lib/types";
 
@@ -64,6 +65,10 @@ export default function HomePage() {
   const [parsePaste, setParsePaste] = useState("");
   const [parseLoading, setParseLoading] = useState(false);
   const [parseResult, setParseResult] = useState<Record<string, unknown> | null>(null);
+  const [editedParseJson, setEditedParseJson] = useState<string>("");
+  const [editedFields, setEditedFields] = useState<Partial<JobRecord> | null>(null);
+  const [showJsonEditor, setShowJsonEditor] = useState(false);
+  const [copySuccess, setCopySuccess] = useState(false);
   const [saveLoading, setSaveLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState<string | "bulk" | null>(null);
 
@@ -295,8 +300,14 @@ export default function HomePage() {
         }
       } else if (res.ok) {
         setParseResult(data);
+        // Initialize edited fields from record
+        const record = data.record as Partial<JobRecord>;
+        setEditedFields(record || {});
+        setEditedParseJson(JSON.stringify(data, null, 2));
+        setShowJsonEditor(false);
       } else {
         setParseResult({ error: data.error ?? "Parse failed" });
+        setEditedParseJson("");
       }
     } catch (error) {
       if (process.env.NODE_ENV === "development") {
@@ -308,9 +319,83 @@ export default function HomePage() {
     }
   };
 
+  const handleCopyAll = async () => {
+    let jsonToCopy: string;
+    if (editedFields) {
+      jsonToCopy = JSON.stringify(editedFields, null, 2);
+    } else if (editedParseJson) {
+      jsonToCopy = editedParseJson;
+    } else {
+      jsonToCopy = JSON.stringify(parseResult?.parsed ?? parseResult?.record, null, 2);
+    }
+
+    try {
+      await navigator.clipboard.writeText(jsonToCopy);
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+    } catch (err) {
+      // Fallback for older browsers
+      const textArea = document.createElement("textarea");
+      textArea.value = jsonToCopy;
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand("copy");
+        setCopySuccess(true);
+        setTimeout(() => setCopySuccess(false), 2000);
+      } catch {
+        // Ignore
+      }
+      document.body.removeChild(textArea);
+    }
+  };
+
+  const handleCopyJson = async () => {
+    await handleCopyAll();
+  };
+
+  const updateField = (field: keyof JobRecord, value: unknown) => {
+    if (!editedFields) return;
+    setEditedFields({ ...editedFields, [field]: value });
+  };
+
   const handleSaveParsed = async () => {
-    const record = parseResult?.record as Partial<JobRecord> | undefined;
-    if (!record) return;
+    let record: Partial<JobRecord> | undefined;
+
+    // Prefer edited fields, then edited JSON, then original result
+    if (editedFields) {
+      record = editedFields;
+    } else if (editedParseJson.trim()) {
+      try {
+        const parsed = JSON.parse(editedParseJson);
+        // If it's the full parsed result, extract the record part
+        if (parsed.record) {
+          record = parsed.record as Partial<JobRecord>;
+        } else if (parsed.parsed) {
+          // Convert parsed result to record format
+          record = parsed.parsed as Partial<JobRecord>;
+        } else {
+          // Assume it's already in record format
+          record = parsed as Partial<JobRecord>;
+        }
+      } catch (parseError) {
+        setParseResult((prev) =>
+          prev
+            ? { ...prev, error: "Invalid JSON. Please check your edits." }
+            : { error: "Invalid JSON. Please check your edits." }
+        );
+        return;
+      }
+    } else {
+      record = parseResult?.record as Partial<JobRecord> | undefined;
+    }
+
+    if (!record) {
+      setParseResult((prev) =>
+        prev ? { ...prev, error: "No data to save" } : { error: "No data to save" }
+      );
+      return;
+    }
     setSaveLoading(true);
     try {
       const res = await fetch("/api/jobs", {
@@ -325,6 +410,9 @@ export default function HomePage() {
         setParseModalOpen(false);
         setParsePaste("");
         setParseResult(null);
+        setEditedParseJson("");
+        setEditedFields(null);
+        setShowJsonEditor(false);
       } else {
         const msg = [data.error, data.detail].filter(Boolean).join(" — ");
         setParseResult((prev) =>
@@ -1055,6 +1143,10 @@ export default function HomePage() {
                       setParseModalOpen(false);
                       setParsePaste("");
                       setParseResult(null);
+                      setEditedParseJson("");
+                      setEditedFields(null);
+                      setShowJsonEditor(false);
+                      setCopySuccess(false);
                     }}
                     className="rounded-lg p-1.5 text-stone-500 hover:bg-beige-200 hover:text-stone-700"
                   >
@@ -1086,25 +1178,232 @@ export default function HomePage() {
                         <p className="text-sm text-red-600">{String(parseResult.error)}</p>
                       ) : (
                         <>
-                          <p className="mb-2 text-sm font-medium text-stone-700">
-                            Parsed data — review and save
-                          </p>
-                          <pre className="max-h-48 overflow-auto rounded bg-beige-100 p-3 text-xs text-stone-700 scrollbar-thin">
-                            {JSON.stringify(parseResult.parsed ?? parseResult.record, null, 2)}
-                          </pre>
-                          <button
-                            type="button"
-                            onClick={handleSaveParsed}
-                            disabled={saveLoading}
-                            className="mt-3 inline-flex items-center gap-2 rounded-lg bg-orange-brand px-3 py-2 text-sm font-medium text-white hover:bg-orange-dark disabled:opacity-50"
-                          >
-                            {saveLoading ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Check className="h-4 w-4" />
-                            )}
-                            Save to tracker
-                          </button>
+                          <div className="mb-4 flex items-center justify-between border-b border-beige-200 pb-3">
+                            <p className="text-sm font-medium text-stone-700">
+                              Parsed data — review, edit, and save
+                            </p>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setShowJsonEditor(!showJsonEditor)}
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-beige-300 bg-white px-2.5 py-1.5 text-xs font-medium text-stone-700 hover:bg-beige-100 focus:outline-none focus:ring-2 focus:ring-orange-brand/20"
+                              >
+                                {showJsonEditor ? "Form View" : "JSON View"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleCopyAll}
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-beige-300 bg-white px-2.5 py-1.5 text-xs font-medium text-stone-700 hover:bg-beige-100 focus:outline-none focus:ring-2 focus:ring-orange-brand/20"
+                                title="Copy all data to clipboard"
+                              >
+                                <Copy className="h-3.5 w-3.5" />
+                                {copySuccess ? "Copied!" : "Copy All"}
+                              </button>
+                            </div>
+                          </div>
+
+                          {showJsonEditor ? (
+                            <textarea
+                              value={editedParseJson}
+                              onChange={(e) => setEditedParseJson(e.target.value)}
+                              className="w-full max-h-96 min-h-[200px] overflow-auto rounded border border-beige-300 bg-beige-50 p-3 font-mono text-xs text-stone-700 scrollbar-thin focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
+                              spellCheck={false}
+                              placeholder="Parsed JSON will appear here..."
+                            />
+                          ) : (
+                            <div className="space-y-4 max-h-[60vh] overflow-y-auto scrollbar-thin">
+                              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                <div>
+                                  <label className="mb-1 block text-xs font-medium text-stone-600">
+                                    Title *
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={editedFields?.title || ""}
+                                    onChange={(e) => updateField("title", e.target.value)}
+                                    className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="mb-1 block text-xs font-medium text-stone-600">
+                                    Company *
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={editedFields?.company || ""}
+                                    onChange={(e) => updateField("company", e.target.value)}
+                                    className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="mb-1 block text-xs font-medium text-stone-600">
+                                    Location *
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={editedFields?.location || ""}
+                                    onChange={(e) => updateField("location", e.target.value)}
+                                    className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="mb-1 block text-xs font-medium text-stone-600">
+                                    Role
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={editedFields?.role || ""}
+                                    onChange={(e) => updateField("role", e.target.value)}
+                                    className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="mb-1 block text-xs font-medium text-stone-600">
+                                    Experience
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={editedFields?.experience || ""}
+                                    onChange={(e) => updateField("experience", e.target.value)}
+                                    className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="mb-1 block text-xs font-medium text-stone-600">
+                                    Job Type
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={editedFields?.jobType || ""}
+                                    onChange={(e) => updateField("jobType", e.target.value)}
+                                    className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="mb-1 block text-xs font-medium text-stone-600">
+                                    Salary Min (INR/yearly)
+                                  </label>
+                                  <input
+                                    type="number"
+                                    value={editedFields?.salaryMin || ""}
+                                    onChange={(e) =>
+                                      updateField(
+                                        "salaryMin",
+                                        e.target.value ? Number(e.target.value) : null
+                                      )
+                                    }
+                                    className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="mb-1 block text-xs font-medium text-stone-600">
+                                    Salary Max (INR/yearly)
+                                  </label>
+                                  <input
+                                    type="number"
+                                    value={editedFields?.salaryMax || ""}
+                                    onChange={(e) =>
+                                      updateField(
+                                        "salaryMax",
+                                        e.target.value ? Number(e.target.value) : null
+                                      )
+                                    }
+                                    className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="mb-1 block text-xs font-medium text-stone-600">
+                                    Seniority
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={editedFields?.seniority || ""}
+                                    onChange={(e) => updateField("seniority", e.target.value)}
+                                    className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="mb-1 block text-xs font-medium text-stone-600">
+                                    Availability
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={editedFields?.availability || ""}
+                                    onChange={(e) => updateField("availability", e.target.value)}
+                                    className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="mb-1 block text-xs font-medium text-stone-600">
+                                    Education
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={editedFields?.education || ""}
+                                    onChange={(e) => updateField("education", e.target.value)}
+                                    className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="mb-1 block text-xs font-medium text-stone-600">
+                                    Posted At
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={editedFields?.postedAt || ""}
+                                    onChange={(e) => updateField("postedAt", e.target.value)}
+                                    className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
+                                  />
+                                </div>
+                              </div>
+                              <div>
+                                <label className="mb-1 block text-xs font-medium text-stone-600">
+                                  Tech Stack (comma-separated)
+                                </label>
+                                <input
+                                  type="text"
+                                  value={editedFields?.techStack?.join(", ") || ""}
+                                  onChange={(e) =>
+                                    updateField(
+                                      "techStack",
+                                      e.target.value
+                                        .split(",")
+                                        .map((t) => t.trim())
+                                        .filter(Boolean)
+                                    )
+                                  }
+                                  className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
+                                />
+                              </div>
+                              <div>
+                                <label className="mb-1 block text-xs font-medium text-stone-600">
+                                  Source
+                                </label>
+                                <input
+                                  type="text"
+                                  value={editedFields?.source || ""}
+                                  onChange={(e) => updateField("source", e.target.value)}
+                                  className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="mt-4 flex gap-2">
+                            <button
+                              type="button"
+                              onClick={handleSaveParsed}
+                              disabled={saveLoading || (!editedFields && !editedParseJson.trim())}
+                              className="inline-flex items-center gap-2 rounded-lg bg-orange-brand px-3 py-2 text-sm font-medium text-white hover:bg-orange-dark disabled:opacity-50"
+                            >
+                              {saveLoading ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Check className="h-4 w-4" />
+                              )}
+                              Save to tracker
+                            </button>
+                          </div>
                         </>
                       )}
                     </div>
