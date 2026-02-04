@@ -79,7 +79,17 @@ export async function POST(request: NextRequest) {
     }
 
     const record = parseResultToJobRecord(result, raw);
-    return NextResponse.json({ parsed: result, record });
+
+    const warnings = (result as any)._warnings;
+    const response: { parsed: typeof result; record: typeof record; warnings?: typeof warnings } = {
+      parsed: result,
+      record,
+    };
+    if (warnings) {
+      response.warnings = warnings;
+    }
+
+    return NextResponse.json(response);
   } catch (e) {
     const error = e instanceof Error ? e : new Error(String(e));
 

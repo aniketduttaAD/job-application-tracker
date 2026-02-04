@@ -1185,7 +1185,18 @@ export default function HomePage() {
                             <div className="flex items-center gap-2">
                               <button
                                 type="button"
-                                onClick={() => setShowJsonEditor(!showJsonEditor)}
+                                onClick={() => {
+                                  // When switching to JSON view, update editedParseJson with current editedFields
+                                  if (!showJsonEditor && editedFields) {
+                                    // Create a record-like structure for JSON view
+                                    const jsonData = {
+                                      parsed: editedFields,
+                                      record: editedFields,
+                                    };
+                                    setEditedParseJson(JSON.stringify(jsonData, null, 2));
+                                  }
+                                  setShowJsonEditor(!showJsonEditor);
+                                }}
                                 className="inline-flex items-center gap-1.5 rounded-lg border border-beige-300 bg-white px-2.5 py-1.5 text-xs font-medium text-stone-700 hover:bg-beige-100 focus:outline-none focus:ring-2 focus:ring-orange-brand/20"
                               >
                                 {showJsonEditor ? "Form View" : "JSON View"}
@@ -1203,13 +1214,18 @@ export default function HomePage() {
                           </div>
 
                           {showJsonEditor ? (
-                            <textarea
-                              value={editedParseJson}
-                              onChange={(e) => setEditedParseJson(e.target.value)}
-                              className="w-full max-h-96 min-h-[200px] overflow-auto rounded border border-beige-300 bg-beige-50 p-3 font-mono text-xs text-stone-700 scrollbar-thin focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
-                              spellCheck={false}
-                              placeholder="Parsed JSON will appear here..."
-                            />
+                            <div className="relative">
+                              <textarea
+                                value={editedParseJson}
+                                readOnly
+                                className="w-full max-h-96 min-h-[200px] overflow-auto rounded border border-beige-300 bg-beige-50 p-3 font-mono text-xs text-stone-700 scrollbar-thin cursor-default"
+                                spellCheck={false}
+                                placeholder="Parsed JSON will appear here..."
+                              />
+                              <div className="absolute top-2 right-2 rounded bg-beige-200/80 px-2 py-1 text-xs text-stone-600">
+                                Read-only view
+                              </div>
+                            </div>
                           ) : (
                             <div className="space-y-4 max-h-[60vh] overflow-y-auto scrollbar-thin">
                               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
